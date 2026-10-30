@@ -128,7 +128,7 @@ def cmd_listen(args: argparse.Namespace, settings: Settings) -> int:
         return EXIT_FAIL
     print(f"采集: {mode_label}")
     print("录音中… 听完按 Ctrl-C 结束(退出码即转写投递)")
-    print("(若始终无电平条:检查 系统设置→隐私与安全性→麦克风 是否已授权本终端)")
+    print("(现在播放音频或说话,电平条应跳动;始终为「·」= 系统设置→隐私与安全性→麦克风 未授权本终端)")
 
     tmp_dir = settings.home / "tmp"
     tmp_dir.mkdir(parents=True, exist_ok=True)

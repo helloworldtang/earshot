@@ -8,13 +8,18 @@
 from __future__ import annotations
 
 import platform
+import warnings
 import wave
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-import soundcard as sc
+
+# soundcard 在 macOS import 时必发一条"不支持环回"警告,属已知事实(BlackHole 方案的前提),
+# 压掉以免吓到用户 —— 必须在 import soundcard 之前过滤
+warnings.filterwarnings("ignore", message=".*loopback recording functionality.*", category=Warning)
+import soundcard as sc  # noqa: E402
 
 SAMPLE_RATE = 48000  # 环回设备主流采样率;重采样交给 ffmpeg
 BLOCK_FRAMES = 4800  # 100ms/块,兼顾电平刷新频率与 CPU
