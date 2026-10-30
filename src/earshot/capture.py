@@ -107,13 +107,19 @@ def pick_device(hint: str | None = None) -> tuple[Any, str]:
     return mic, fallback
 
 
-def record_to_wav(mic: Any, out_wav: Path, on_level: Callable[[float], None] | None = None) -> float:
+def record_to_wav(
+    mic: Any,
+    out_wav: Path,
+    on_level: Callable[[float], None] | None = None,
+    on_audio: Callable[[np.ndarray], None] | None = None,
+) -> float:
     """录制到 wav(pcm16/48k/mono),Ctrl-C 停止。
 
     Args:
         mic: pick_device 返回的设备。
         out_wav: 输出路径。
         on_level: 可选电平回调(rms,0~1 区间参考),用于终端电平条。
+        on_audio: 可选音频块回调(float32 mono),实时转写经此喂入。
 
     Returns:
         实际录制时长(秒)。
@@ -132,6 +138,8 @@ def record_to_wav(mic: Any, out_wav: Path, on_level: Callable[[float], None] | N
                         continue
                     if on_level is not None:
                         on_level(float(np.sqrt(np.mean(np.square(mono)))))
+                    if on_audio is not None:
+                        on_audio(mono)
                     pcm16 = (np.clip(mono, -1.0, 1.0) * 32767.0).astype("<i2")
                     w.writeframes(pcm16.tobytes())
                     total_frames += mono.size

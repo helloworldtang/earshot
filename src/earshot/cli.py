@@ -8,12 +8,15 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
+
 from earshot import __version__
 from earshot.capture import blackhole_missing_hint, list_capture_devices, pick_device, record_to_wav
 from earshot.compose import NoteMeta, derive_title, group_paragraphs, outbox_path, render_markdown
 from earshot.config import Settings, load_settings
 from earshot.deliver import DeliveryResult, deliver_exomind, deliver_exomind_api, deliver_webhook
 from earshot.extract import ExtractError, ffmpeg_available, to_wav16k, wav_duration
+from earshot.live import LiveSession
 from earshot.models import ensure_models
 from earshot.transcribe import LocalTranscriber, Segment, TranscribeError
 from earshot.transcribe_cloud import CloudTranscribeError, transcribe_cloud
@@ -149,14 +152,40 @@ def cmd_listen(args: argparse.Namespace, settings: Settings) -> int:
         print(f"✗ {e}")
         return EXIT_FAIL
     print(f"采集: {mode_label}")
-    print("录音中… 听完按 Ctrl-C 结束(退出码即转写投递)")
-    print("(现在播放音频或说话,电平条应跳动;始终为「·」= 系统设置→隐私与安全性→麦克风 未授权本终端)")
 
     tmp_dir = settings.home / "tmp"
     tmp_dir.mkdir(parents=True, exist_ok=True)
     started_at = datetime.now()
     raw_wav = tmp_dir / f"listen-{started_at.strftime('%Y%m%d-%H%M%S')}.wav"
 
+    # 实时字幕:本地引擎边录边转,段闭合即上屏
+    live: LiveSession | None = None
+    on_audio = None
+    if args.engine == "local":
+        try:
+            ensure_models(settings.model_root)
+            transcriber = LocalTranscriber(settings.model_root)
+        except (RuntimeError, TranscribeError) as e:
+            print(f"✗ {e}")
+            return EXIT_FAIL
+
+        def _show(text: str) -> None:
+            print(f"\r\033[K  ↪ {text}", flush=True)  # 清掉电平行再出字幕
+
+        live = LiveSession(transcriber, on_text=_show)
+        live.start()
+
+        import soxr
+
+        resampler = soxr.ResampleStream(48000, 1, 16000, 1)
+
+        def _push_16k(mono: np.ndarray) -> None:
+            assert live is not None
+            live.push(np.asarray(resampler.resample_chunk(mono), dtype=np.float32))
+
+        on_audio = _push_16k
+
+    print("录音中… 听完按 Ctrl-C 结束(实时字幕随说话滚动;无字幕/电平不动=检查麦克风权限)")
     import time as _time
 
     t0 = _time.monotonic()
@@ -168,29 +197,37 @@ def cmd_listen(args: argparse.Namespace, settings: Settings) -> int:
         bar = _LEVEL_BLOCKS[level - 1] * max(level, 1) if level else "·"
         print(f"\r⏺ {m:02d}:{s:02d} {bar:<8}", end="", flush=True)
 
-    duration_s = record_to_wav(mic, raw_wav, on_level=_meter)
+    duration_s = record_to_wav(mic, raw_wav, on_level=_meter, on_audio=on_audio)
     print()
     if duration_s < 1.0:
         print(f"录音太短({duration_s:.1f}s),忽略")
         return EXIT_NO_CONTENT
 
-    wav16k = raw_wav.with_suffix(".16k.wav")
-    try:
-        to_wav16k(raw_wav, wav16k)
-    except ExtractError as e:
-        print(f"✗ {e}")
-        return EXIT_FAIL
-    try:
-        segments = _transcribe(wav16k, args.engine, settings)
-    except (TranscribeError, CloudTranscribeError) as e:
-        print(f"✗ {e}")
-        return EXIT_FAIL
+    if live is not None:
+        print("→ 收尾转写中(最后未闭段)…")
+        try:
+            segments = live.finalize()
+        except TranscribeError as e:
+            print(f"✗ {e}")
+            return EXIT_FAIL
+    else:
+        wav16k = raw_wav.with_suffix(".16k.wav")
+        try:
+            to_wav16k(raw_wav, wav16k)
+        except ExtractError as e:
+            print(f"✗ {e}")
+            return EXIT_FAIL
+        try:
+            segments = _transcribe(wav16k, args.engine, settings)
+        except (TranscribeError, CloudTranscribeError) as e:
+            print(f"✗ {e}")
+            return EXIT_FAIL
 
     meta = NoteMeta(started_at=started_at, duration_s=duration_s, device=mic.name, source="listen", note=args.note)
     rc = _run_pipeline(segments, meta, args, settings)
     if rc == EXIT_OK:  # 成功后清掉临时录音(失败保留供排查)
         raw_wav.unlink(missing_ok=True)
-        wav16k.unlink(missing_ok=True)
+        raw_wav.with_suffix(".16k.wav").unlink(missing_ok=True)
     return rc
 
 

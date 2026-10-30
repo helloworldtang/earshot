@@ -15,6 +15,8 @@ dependencies = [
     "httpx>=0.27",
     # 平台 wheel 内置 ffmpeg 二进制(~60MB):系统没装 ffmpeg 也能跑(MoviePy 同款做法)
     "imageio-ffmpeg>=0.5",
+    # 实时字幕:录音流 48k→16k 在线重采样(流式,不能等录完再重采样)
+    "soxr>=0.5",
 ]
 
 [project.scripts]
@@ -48,7 +50,7 @@ strict = true
 files = ["src", "tests"]
 # sherpa-onnx / soundcard 未随 wheel 提供 py.typed —— 与其假装,不如显式忽略
 [[tool.mypy.overrides]]
-module = ["sherpa_onnx.*", "soundcard.*", "onnxruntime.*", "imageio_ffmpeg.*"]
+module = ["sherpa_onnx.*", "soundcard.*", "onnxruntime.*", "imageio_ffmpeg.*", "soxr.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
