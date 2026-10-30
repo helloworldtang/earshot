@@ -1,0 +1,73 @@
+# earshot
+
+旁听剪藏:**听到的,都能进知识库。**
+
+听 B站/视频号/播客/讲座时开着它,听完 `Ctrl-C`,录音自动转写为 Markdown 并投递到你的知识库(默认 [ExoMind 知识飞轮](https://exomind.ai-as.cn),可插拔任意 webhook)。纯端侧转写,无限流、零 API 费用。
+
+```
+系统声音 ──录制──> 16k wav ──silero VAD 切段──> SenseVoice 端侧识别 ──> Markdown ──> 投递(exomind / webhook / 仅存档)
+```
+
+## 安装
+
+```bash
+git clone <repo> && cd earshot
+uv sync
+uv run earshot doctor   # 环境自检,缺什么补什么
+./scripts/download_models.sh   # 首次:下载 SenseVoice int8 + silero VAD(约 230MB,走 hf-mirror)
+```
+
+依赖:`ffmpeg` 在 PATH(macOS: `brew install ffmpeg`)。
+
+### 平台采集矩阵
+
+| 平台 | 系统声采集 | 额外步骤 |
+|---|---|---|
+| Windows | WASAPI loopback(原生) | 无 |
+| Linux | PulseAudio/PipeWire `.monitor` | 无 |
+| macOS | 无原生环回 | `brew install blackhole-2ch`,然后在「音频 MIDI 设置」新建**多输出设备**(BlackHole 2ch + 扬声器)并设为系统输出 —— 边听边录 |
+
+> macOS 下默认逻辑 = 取「当前默认扬声器的同名输入设备」;把多输出设备设为默认输出即可被自动选中。也可 `--device` 指定。
+
+## 使用
+
+```bash
+# 旁听模式:开录 → 听 → Ctrl-C 完成 → 自动转写投递
+earshot listen --note "B站·xxx第3期" --tag 旁听
+
+# 已有音视频文件(录屏 mp4 / 语音 m4a / 播客 mp3)
+earshot audio recording.mp4 --title "通勤听书笔记" --deliver none
+
+# 列出采集设备 / 环境自检
+earshot devices
+earshot doctor
+```
+
+常用参数:`--title`(默认取首句截断40字)、`--tag`(可多次)、`--note`(来源备注写入脚注)、
+`--engine server`(改走云端 dashscope 转写,复用 `~/.exomind/config.json` 凭据)、
+`--deliver webhook --webhook <url>`(投递到任意知识库,POST JSON `{origin,title,content,tags}`)、
+`--deliver none`(只落 `~/.earshot/outbox/` 存档)。
+
+笔记留档:`~/.earshot/outbox/YYYYMMDD-HHMMSS-<标题>.md`(投递前永久留存,可用 `EARSHOT_HOME` 迁移)。
+
+## 设计要点
+
+- **声音是最后的通用接口**:不依赖任何平台的开放性(B站字幕 API、视频号加密……都不碰),换平台零成本。
+- **端侧优先**:SenseVoice-small int8 纯 CPU 转写,1 小时音频约 1-2 分钟,无"服务用户多请稍后"。
+- **投递可插拔**:exomind CLI(复用其异步 job、轮询、client_key 幂等)/ webhook / 仅存档。
+- **平台差异只允许存在于 `capture.py`**:换采集方案不动上层。
+
+## 开发
+
+```bash
+uv sync                      # 含 dev 组(ruff/mypy/pytest)
+uv run ruff check . && uv run ruff format --check .
+uv run mypy
+uv run pytest
+```
+
+测试不依赖模型与声卡;`tests/test_extract.py` 需要本机 ffmpeg(无则自动跳过)。
+
+## License
+
+MIT

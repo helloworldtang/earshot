@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# 模型与录音产物(不进仓)
+models/
+*.wav
+*.m4a
+*.mp3
+*.aac
