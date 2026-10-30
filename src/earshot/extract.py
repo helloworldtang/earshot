@@ -15,9 +15,26 @@ class ExtractError(RuntimeError):
     """ffmpeg 抽音轨失败。"""
 
 
+def ffmpeg_exe() -> str | None:
+    """定位 ffmpeg:优先系统 PATH,其次 imageio-ffmpeg wheel 内置二进制。
+
+    Returns:
+        ffmpeg 可执行文件路径,两级都无则 None。
+    """
+    found = shutil.which(FFMPEG)
+    if found:
+        return found
+    try:
+        import imageio_ffmpeg  # noqa: PLC0415 延迟导入:装了系统 ffmpeg 就不必加载
+
+        return str(imageio_ffmpeg.get_ffmpeg_exe())
+    except Exception:  # imageio_ffmpeg 缺失或平台无二进制
+        return None
+
+
 def ffmpeg_available() -> bool:
-    """ffmpeg 是否在 PATH 上。"""
-    return shutil.which(FFMPEG) is not None
+    """ffmpeg 是否可用(系统或内置 wheel 任一)。"""
+    return ffmpeg_exe() is not None
 
 
 def to_wav16k(src: Path, dst: Path) -> None:
@@ -30,11 +47,12 @@ def to_wav16k(src: Path, dst: Path) -> None:
     Raises:
         ExtractError: ffmpeg 缺失或执行失败。
     """
-    if not ffmpeg_available():
-        msg = "未找到 ffmpeg(macOS: brew install ffmpeg)"
+    exe = ffmpeg_exe()
+    if exe is None:
+        msg = "未找到 ffmpeg(系统 PATH 与 imageio-ffmpeg 内置均无;重装 earshot 依赖)"
         raise ExtractError(msg)
     cmd = [
-        FFMPEG,
+        exe,
         "-hide_banner",
         "-loglevel",
         "error",

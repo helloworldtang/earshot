@@ -12,8 +12,9 @@ from earshot import __version__
 from earshot.capture import blackhole_missing_hint, list_capture_devices, pick_device, record_to_wav
 from earshot.compose import NoteMeta, derive_title, group_paragraphs, outbox_path, render_markdown
 from earshot.config import Settings, load_settings
-from earshot.deliver import DeliveryResult, deliver_exomind, deliver_webhook
+from earshot.deliver import DeliveryResult, deliver_exomind, deliver_exomind_api, deliver_webhook
 from earshot.extract import ExtractError, ffmpeg_available, to_wav16k, wav_duration
+from earshot.models import ensure_models
 from earshot.transcribe import LocalTranscriber, Segment, TranscribeError
 from earshot.transcribe_cloud import CloudTranscribeError, transcribe_cloud
 
@@ -64,6 +65,7 @@ def _transcribe(wav16k: Path, engine: str, settings: Settings) -> list[Segment]:
         text = transcribe_cloud(wav16k, settings)
         return [Segment(0.0, 0.0, line.strip()) for line in text.splitlines() if line.strip()]
     print("→ 本地转写中(VAD+SenseVoice)…")
+    ensure_models(settings.model_root)  # 缺失则首次运行自动下载(hf-mirror)
     transcriber = LocalTranscriber(settings.model_root)
 
     def _progress(frac: float) -> None:
@@ -105,8 +107,14 @@ def _run_pipeline(
             print("✗ --deliver webhook 需要 --webhook <url>")
             return EXIT_FAIL
         result = deliver_webhook(args.webhook, title, md, tags)
+    elif settings.exomind_api_key:
+        result = deliver_exomind_api(md_path, title, tags, settings)  # 直连 API,免装 CLI
+    elif shutil.which("exomind"):
+        result = deliver_exomind(md_path, title, tags)  # 无凭据但有 CLI,回退
     else:
-        result = deliver_exomind(md_path, title, tags)
+        print("✗ failed: 无 exomind 凭据也无 exomind CLI")
+        print("  → exomind login 生成 ~/.exomind/config.json,或 npm i -g exomind,或改用 --deliver webhook/none")
+        return EXIT_FAIL
     mark = {"delivered": "✓", "pending": "⏳", "failed": "✗"}.get(result.status, "·")
     print(f"{mark} {result.status}: {result.detail}")
     return EXIT_OK if result.status in ("delivered", "pending") else EXIT_FAIL
@@ -212,7 +220,7 @@ def cmd_doctor(_args: argparse.Namespace, settings: Settings) -> int:
         ok = ok and fine
         print(f"{'✓' if fine else '✗'} {label}" + ("" if fine else f"  → {fix}"))
 
-    check("ffmpeg", ffmpeg_available(), "brew install ffmpeg")
+    check("ffmpeg(系统或内置)", ffmpeg_available(), "重装 earshot 依赖(imageio-ffmpeg 应自带)")
     try:
         devices = list_capture_devices()
         loopbacks = [n for n, lb in devices if lb]
@@ -226,12 +234,18 @@ def cmd_doctor(_args: argparse.Namespace, settings: Settings) -> int:
             check("采集设备", False, "无环回设备,检查系统音频")
     except Exception as e:  # soundcard 底层异常族不稳定,收口
         check("采集设备", False, f"soundcard 枚举失败: {e}")
-    for rel in ("asr/model.int8.onnx", "asr/tokens.txt", "vad/silero_vad.onnx"):
-        check(
-            f"模型 {rel}", (settings.model_root / rel).is_file(), "scripts/download_models.sh 或设 EARSHOT_MODEL_ROOT"
-        )
-    check("exomind CLI", shutil.which("exomind") is not None, "npm i -g exomind,或改用 --deliver webhook/none")
-    check("exomind 凭据", bool(settings.exomind_api_key), "exomind login,或设 EXOMIND_API_KEY")
+    from earshot.models import missing_models
+
+    missing = missing_models(settings.model_root)
+    if missing:
+        print(f"○ 模型:{len(missing)} 个缺失,首次转写时自动下载(~230MB,hf-mirror)")
+    else:
+        print("✓ 模型(SenseVoice int8 + silero VAD)")
+    check(
+        "exomind 投递(API 凭据或 CLI)",
+        bool(settings.exomind_api_key) or shutil.which("exomind") is not None,
+        "exomind login 生成 ~/.exomind/config.json,或 npm i -g exomind,或 --deliver webhook/none",
+    )
     print("\n全部通过 ✓" if ok else "\n存在未通过项 ✗")
     return EXIT_OK if ok else EXIT_FAIL
 

@@ -8,16 +8,16 @@
 系统声音 ──录制──> 16k wav ──silero VAD 切段──> SenseVoice 端侧识别 ──> Markdown ──> 投递(exomind / webhook / 仅存档)
 ```
 
-## 安装
+## 安装(开箱即用)
 
 ```bash
-git clone <repo> && cd earshot
-uv sync
-uv run earshot doctor   # 环境自检,缺什么补什么
-./scripts/download_models.sh   # 首次:下载 SenseVoice int8 + silero VAD(约 230MB,走 hf-mirror)
+uv tool install earshot   # 或 pipx install earshot(发布 PyPI 后);源码:uv tool install git+<repo>
+earshot doctor            # 环境自检
 ```
 
-依赖:`ffmpeg` 在 PATH(macOS: `brew install ffmpeg`)。
+- **零系统依赖**:ffmpeg 已随 Python wheel 内置([imageio-ffmpeg](https://pypi.org/project/imageio-ffmpeg),MoviePy 同款),无需 brew/apt。
+- **模型首次运行自动下载**:SenseVoice int8 + silero VAD(~230MB,默认走 hf-mirror,`HF_ENDPOINT` 可覆盖),装完不再下。
+- **投递免装 CLI**:默认直连 ExoMind HTTP API(复用 `~/.exomind/config.json` 凭据);没有凭据但有 exomind CLI 时自动回退;也支持任意 webhook。
 
 ### 平台采集矩阵
 
