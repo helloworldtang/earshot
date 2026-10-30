@@ -177,7 +177,7 @@ def cmd_listen(args: argparse.Namespace, settings: Settings) -> int:
 
         import soxr
 
-        resampler = soxr.ResampleStream(48000, 1, 16000, 1)
+        resampler = soxr.ResampleStream(48000, 16000, num_channels=1)
 
         def _push_16k(mono: np.ndarray) -> None:
             assert live is not None
