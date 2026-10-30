@@ -59,7 +59,16 @@ earshot doctor
 `--deliver webhook --webhook <url>`(投递到任意知识库,POST JSON `{origin,title,content,tags}`)、
 `--deliver none`(只落 `~/.earshot/outbox/` 存档)。
 
-笔记留档:`~/.earshot/outbox/YYYYMMDD-HHMMSS-<标题>.md`(投递前永久留存,可用 `EARSHOT_HOME` 迁移)。
+笔记留档:`~/.earshot/outbox/YYYYMMDD-HHMMSS-<标题>.md`。
+
+### 文件生命周期
+
+| 位置 | 内容 | 生命周期 |
+|---|---|---|
+| `~/.earshot/tmp/*.wav` | 录音中间产物 | 转写投递成功后**自动删除**(失败保留供排查) |
+| `~/.earshot/outbox/*.md` | 转写笔记留档 | **永久保留**(审计/重投兜底),`earshot clean --days 30` 手动清理 |
+
+投递前会先在终端**预览识别内容**,回车投递、`q` 放弃(笔记仍留档);`--yes` 跳过确认。等待服务端回执时 Ctrl-C = 不再等待(内容已提交,job 在服务端继续)。
 
 ## 设计要点
 

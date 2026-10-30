@@ -184,19 +184,23 @@ def deliver_exomind_api(
         return DeliveryResult("failed", f"响应缺 job_id: {str(resp)[:200]}")
 
     deadline = time.monotonic() + poll_budget_s
-    while time.monotonic() < deadline:
-        try:
-            st = get(f"{base}/ingest/status", {"job_id": str(job_id)}, headers)
-        except Exception as e:
-            return DeliveryResult("failed", f"查询回执失败(job_id={job_id}): {e}")
-        status = st.get("status")
-        if status == "done":
-            entities = st.get("entities") or []
-            pages = st.get("created_pages") or []
-            updated = st.get("updated_pages") or []
-            detail = f"已入库:实体 {len(entities)} 个,页面 +{len(pages)}/更{len(updated)}(job_id={job_id})"
-            return DeliveryResult("delivered", detail)
-        if status == "failed":
-            return DeliveryResult("failed", f"服务端抽取失败: {st.get('error', '未知')}(job_id={job_id})")
-        time.sleep(poll_interval_s)
+    try:
+        while time.monotonic() < deadline:
+            try:
+                st = get(f"{base}/ingest/status", {"job_id": str(job_id)}, headers)
+            except Exception as e:
+                return DeliveryResult("failed", f"查询回执失败(job_id={job_id}): {e}")
+            status = st.get("status")
+            if status == "done":
+                entities = st.get("entities") or []
+                pages = st.get("created_pages") or []
+                updated = st.get("updated_pages") or []
+                detail = f"已入库:实体 {len(entities)} 个,页面 +{len(pages)}/更{len(updated)}(job_id={job_id})"
+                return DeliveryResult("delivered", detail)
+            if status == "failed":
+                return DeliveryResult("failed", f"服务端抽取失败: {st.get('error', '未知')}(job_id={job_id})")
+            time.sleep(poll_interval_s)
+    except KeyboardInterrupt:
+        # Ctrl-C = 不等回执了;内容已提交,服务端 job 会继续跑完
+        return DeliveryResult("pending", f"已提交,不再等待回执(job_id={job_id})")
     return DeliveryResult("pending", f"已提交,后台抽取中(job_id={job_id})")

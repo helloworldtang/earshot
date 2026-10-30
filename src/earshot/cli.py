@@ -38,6 +38,7 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--webhook", help="webhook 地址(--deliver webhook 时必填)")
     p.add_argument("--out", type=Path, help="outbox 目录(默认 ~/.earshot/outbox)")
+    p.add_argument("-y", "--yes", action="store_true", help="跳过内容确认,直接投递")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,6 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("devices", help="列出可用采集设备")
     sub.add_parser("doctor", help="环境自检")
+    p_clean = sub.add_parser("clean", help="清理过期留档(outbox+tmp)")
+    p_clean.add_argument("--days", type=int, default=30, help="删除超过 N 天的文件(默认 30)")
     return parser
 
 
@@ -98,19 +101,38 @@ def _run_pipeline(
     md_path.write_text(md, encoding="utf-8")
     print(f"已保存笔记: {md_path}")
 
+    # 投递前先看内容:识别差可当场放弃(笔记仍留档)
+    print("\n=== 识别内容 ===")
+    for para in paragraphs:
+        print(para + "\n")
+    print("=== 内容结束 ===")
+    if sys.stdin.isatty() and not args.yes:
+        try:
+            answer = input("[回车] 投递 | [q] 放弃投递(笔记保留): ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print("\n已中断;笔记保留在 outbox")
+            return EXIT_OK
+        if answer == "q":
+            print("已放弃投递;笔记保留在 outbox,可稍后编辑后手动 ingest")
+            return EXIT_OK
+
     if args.deliver == "none":
         print("跳过投递(--deliver none)")
         return EXIT_OK
     result: DeliveryResult
-    if args.deliver == "webhook":
-        if not args.webhook:
-            print("✗ --deliver webhook 需要 --webhook <url>")
-            return EXIT_FAIL
-        result = deliver_webhook(args.webhook, title, md, tags)
-    elif settings.exomind_api_key:
-        result = deliver_exomind_api(md_path, title, tags, settings)  # 直连 API,免装 CLI
-    elif shutil.which("exomind"):
-        result = deliver_exomind(md_path, title, tags)  # 无凭据但有 CLI,回退
+    try:
+        if args.deliver == "webhook":
+            if not args.webhook:
+                print("✗ --deliver webhook 需要 --webhook <url>")
+                return EXIT_FAIL
+            result = deliver_webhook(args.webhook, title, md, tags)
+        elif settings.exomind_api_key:
+            result = deliver_exomind_api(md_path, title, tags, settings)  # 直连 API,免装 CLI
+        elif shutil.which("exomind"):
+            result = deliver_exomind(md_path, title, tags)  # 无凭据但有 CLI,回退
+    except KeyboardInterrupt:
+        print("\n⏳ 已中断:内容可能已提交(服务端会继续处理);笔记保留在 outbox")
+        return EXIT_OK
     else:
         print("✗ failed: 无 exomind 凭据也无 exomind CLI")
         print("  → exomind login 生成 ~/.exomind/config.json,或 npm i -g exomind,或改用 --deliver webhook/none")
@@ -165,7 +187,11 @@ def cmd_listen(args: argparse.Namespace, settings: Settings) -> int:
         return EXIT_FAIL
 
     meta = NoteMeta(started_at=started_at, duration_s=duration_s, device=mic.name, source="listen", note=args.note)
-    return _run_pipeline(segments, meta, args, settings)
+    rc = _run_pipeline(segments, meta, args, settings)
+    if rc == EXIT_OK:  # 成功后清掉临时录音(失败保留供排查)
+        raw_wav.unlink(missing_ok=True)
+        wav16k.unlink(missing_ok=True)
+    return rc
 
 
 def cmd_audio(args: argparse.Namespace, settings: Settings) -> int:
@@ -194,7 +220,10 @@ def cmd_audio(args: argparse.Namespace, settings: Settings) -> int:
         source="audio",
         note=args.note,
     )
-    return _run_pipeline(segments, meta, args, settings)
+    rc = _run_pipeline(segments, meta, args, settings)
+    if rc == EXIT_OK:  # 成功后清掉临时 wav(失败保留供排查)
+        wav16k.unlink(missing_ok=True)
+    return rc
 
 
 def cmd_devices(_args: argparse.Namespace, _settings: Settings) -> int:
@@ -250,6 +279,23 @@ def cmd_doctor(_args: argparse.Namespace, settings: Settings) -> int:
     return EXIT_OK if ok else EXIT_FAIL
 
 
+def cmd_clean(args: argparse.Namespace, settings: Settings) -> int:
+    """清理超过 N 天的 outbox 笔记与 tmp 录音。"""
+    import time as _time
+
+    cutoff = _time.time() - args.days * 86400
+    removed = 0
+    for folder in (settings.outbox, settings.home / "tmp"):
+        if not folder.is_dir():
+            continue
+        for f in folder.iterdir():
+            if f.is_file() and f.stat().st_mtime < cutoff:
+                f.unlink()
+                removed += 1
+    print(f"已清理 {removed} 个超过 {args.days} 天的文件(outbox + tmp)")
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -259,8 +305,14 @@ def main(argv: list[str] | None = None) -> int:
         "audio": cmd_audio,
         "devices": cmd_devices,
         "doctor": cmd_doctor,
+        "clean": cmd_clean,
     }
-    return int(handlers[args.command](args, settings))
+    try:
+        return int(handlers[args.command](args, settings))
+    except KeyboardInterrupt:
+        # Ctrl-C 语义 =「点完成」或「不等了」,不该以 traceback 收场
+        print("\n(已中断)")
+        return 130
 
 
 if __name__ == "__main__":

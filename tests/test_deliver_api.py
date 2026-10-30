@@ -102,3 +102,19 @@ def test_missing_models_detection(tmp_path: Path) -> None:
     (tmp_path / "asr").mkdir()
     (tmp_path / "asr" / "tokens.txt").write_text("x", encoding="utf-8")
     assert missing_models(tmp_path) == ["asr/model.int8.onnx", "vad/silero_vad.onnx"]
+
+
+def test_deliver_api_ctrl_c_during_poll_is_pending(tmp_path: Path) -> None:
+    md = tmp_path / "note.md"
+    md.write_text("内容", encoding="utf-8")
+
+    def poster(_u: str, _p: dict[str, Any], _h: dict[str, str]) -> dict[str, Any]:
+        return {"job_id": "j-int"}
+
+    def getter(_u: str, _p: dict[str, str], _h: dict[str, str]) -> dict[str, Any]:
+        raise KeyboardInterrupt
+
+    result = deliver_exomind_api(md, "t", [], _settings(), poster=poster, getter=getter, poll_interval_s=0)
+    assert result.status == "pending"
+    assert "不再等待回执" in result.detail
+    assert "j-int" in result.detail
