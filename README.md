@@ -25,15 +25,26 @@ uv run earshot doctor   # 环境自检,缺什么补什么
 |---|---|---|
 | Windows | WASAPI loopback(原生) | 无 |
 | Linux | PulseAudio/PipeWire `.monitor` | 无 |
-| macOS | 无原生环回 | `brew install blackhole-2ch`,然后在「音频 MIDI 设置」新建**多输出设备**(BlackHole 2ch + 扬声器)并设为系统输出 —— 边听边录 |
+| macOS | 无原生环回 | 见下方「macOS 三级台阶」,零配置即可用 |
+
+#### macOS 三级台阶(按门槛从低到高)
+
+1. **零配置·录屏路线**:听 Mac 上的内容时 `Cmd+Shift+5` 录屏(自带系统声),
+   听完 `earshot audio 录屏.mp4` —— 不装任何东西,今天就能用。
+2. **零配置·麦录兜底**:直接 `earshot listen`,未配置环回时自动退回内置麦克风
+   外放收音(豆包同款,音质一般但可用)。
+3. **一次性设置·内录(音质无损)**:`brew install blackhole-2ch`,在「音频 MIDI 设置」
+   新建**多输出设备**(BlackHole 2ch + 扬声器)并设为系统输出 —— 边听边录,终身受用。
+   装好后 earshot 自动选中,无需 `--device`。
 
 > macOS 下默认逻辑 = 取「当前默认扬声器的同名输入设备」;把多输出设备设为默认输出即可被自动选中。也可 `--device` 指定。
 
 ## 使用
 
 ```bash
-# 旁听模式:开录 → 听 → Ctrl-C 完成 → 自动转写投递
-earshot listen --note "B站·xxx第3期" --tag 旁听
+# 旁听模式:开录 → 听 → Ctrl-C 完成 → 自动转写投递(--note/--tag 均可选,默认标签「旁听」)
+earshot listen
+earshot listen --note "B站·xxx第3期"
 
 # 已有音视频文件(录屏 mp4 / 语音 m4a / 播客 mp3)
 earshot audio recording.mp4 --title "通勤听书笔记" --deliver none

@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from earshot import __version__
-from earshot.capture import blackhole_missing_hint, list_capture_devices, pick_loopback, record_to_wav
+from earshot.capture import blackhole_missing_hint, list_capture_devices, pick_device, record_to_wav
 from earshot.compose import NoteMeta, derive_title, group_paragraphs, outbox_path, render_markdown
 from earshot.config import Settings, load_settings
 from earshot.deliver import DeliveryResult, deliver_exomind, deliver_webhook
@@ -26,7 +26,7 @@ _LEVEL_BLOCKS = "▁▂▃▄▅▆▇█"
 
 def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--title", help="笔记标题(默认取首句截断)")
-    p.add_argument("--tag", action="append", default=[], help="投递标签,可多次")
+    p.add_argument("--tag", action="append", default=None, help="投递标签,可多次(默认 旁听)")
     p.add_argument("--note", default="", help="来源备注,如「B站·xxx第3期」,写进脚注")
     p.add_argument("--engine", choices=["local", "server"], default="local", help="转写引擎(默认 local 端侧)")
     p.add_argument(
@@ -86,6 +86,7 @@ def _run_pipeline(
         return EXIT_NO_CONTENT
 
     title = derive_title(segments, args.title)
+    tags = args.tag if args.tag else ["旁听"]
     paragraphs = ["".join(s.text for s in group) for group in group_paragraphs(segments)]
     md = render_markdown(meta, paragraphs, title)
 
@@ -103,9 +104,9 @@ def _run_pipeline(
         if not args.webhook:
             print("✗ --deliver webhook 需要 --webhook <url>")
             return EXIT_FAIL
-        result = deliver_webhook(args.webhook, title, md, args.tag)
+        result = deliver_webhook(args.webhook, title, md, tags)
     else:
-        result = deliver_exomind(md_path, title, args.tag)
+        result = deliver_exomind(md_path, title, tags)
     mark = {"delivered": "✓", "pending": "⏳", "failed": "✗"}.get(result.status, "·")
     print(f"{mark} {result.status}: {result.detail}")
     return EXIT_OK if result.status in ("delivered", "pending") else EXIT_FAIL
@@ -113,11 +114,11 @@ def _run_pipeline(
 
 def cmd_listen(args: argparse.Namespace, settings: Settings) -> int:
     try:
-        mic = pick_loopback(args.device)
+        mic, mode_label = pick_device(args.device)
     except LookupError as e:
         print(f"✗ {e}")
         return EXIT_FAIL
-    print(f"采集设备: {mic.name}")
+    print(f"采集: {mode_label}")
     print("录音中… 听完按 Ctrl-C 结束(退出码即转写投递)")
     print("(若始终无电平条:检查 系统设置→隐私与安全性→麦克风 是否已授权本终端)")
 
@@ -216,12 +217,13 @@ def cmd_doctor(_args: argparse.Namespace, settings: Settings) -> int:
         devices = list_capture_devices()
         loopbacks = [n for n, lb in devices if lb]
         mac_hint = blackhole_missing_hint()
-        capture_ok = bool(loopbacks) or mac_hint is None
-        check(
-            f"采集设备({len(loopbacks)} 个环回)",
-            capture_ok,
-            mac_hint or "无环回设备,检查系统音频",
-        )
+        if loopbacks:
+            print(f"✓ 采集设备({len(loopbacks)} 个环回)")
+        elif mac_hint is not None:
+            # 麦录兜底存在,不算失败:降级为提示
+            print(f"○ 采集设备:无环回,listen 将退回麦克风收音。{mac_hint}")
+        else:
+            check("采集设备", False, "无环回设备,检查系统音频")
     except Exception as e:  # soundcard 底层异常族不稳定,收口
         check("采集设备", False, f"soundcard 枚举失败: {e}")
     for rel in ("asr/model.int8.onnx", "asr/tokens.txt", "vad/silero_vad.onnx"):

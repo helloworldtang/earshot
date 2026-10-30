@@ -72,11 +72,41 @@ def pick_loopback(hint: str | None = None) -> Any:
     raise LookupError(msg)
 
 
+def pick_device(hint: str | None = None) -> tuple[Any, str]:
+    """选采集设备,带麦录兜底(零门槛优先于零音质损失)。
+
+    优先级:hint 匹配 > 默认扬声器环回 > 任意环回 > 默认麦克风(外放收音,豆包同款)。
+
+    Args:
+        hint: 设备名子串;None 走默认回退链。
+
+    Returns:
+        ``(mic, mode_label)``,mode_label 用于向用户说明当前采集方式。
+
+    Raises:
+        LookupError: 全链条找不到可用设备。
+    """
+    try:
+        return pick_loopback(hint), "环回内录(音质无损)"
+    except LookupError:
+        if hint:
+            raise  # 显式指定的设备找不到,不擅自换
+    for m in sc.all_microphones(include_loopback=True):
+        if m.isloopback:
+            return m, f"环回内录(音质无损,设备:{m.name})"
+    mic = sc.default_microphone()
+    if mic is None:
+        msg = "未找到任何可用输入设备(earshot devices 查看)"
+        raise LookupError(msg)
+    fallback = f"麦克风收音(外放收音,豆包同款;配 BlackHole 可内录)设备:{mic.name}"
+    return mic, fallback
+
+
 def record_to_wav(mic: Any, out_wav: Path, on_level: Callable[[float], None] | None = None) -> float:
     """录制到 wav(pcm16/48k/mono),Ctrl-C 停止。
 
     Args:
-        mic: pick_loopback 返回的设备。
+        mic: pick_device 返回的设备。
         out_wav: 输出路径。
         on_level: 可选电平回调(rms,0~1 区间参考),用于终端电平条。
 
