@@ -12,7 +12,7 @@ from earshot.transcribe import Segment
 PARAGRAPH_GAP_S = 2.5  # 段间隔超过此值即换段(自然段)
 TITLE_MAX_CHARS = 40
 
-SOURCE_LABELS = {"listen": "旁听录音", "audio": "音频文件"}
+SOURCE_LABELS = {"listen": "旁听录音", "audio": "音频文件", "video": "视频字幕"}
 
 
 @dataclass(frozen=True, slots=True)

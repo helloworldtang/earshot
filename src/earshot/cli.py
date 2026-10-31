@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import shutil
 import sys
 from datetime import datetime
@@ -18,6 +20,7 @@ from earshot.deliver import DeliveryResult, deliver_exomind, deliver_exomind_api
 from earshot.extract import ExtractError, ffmpeg_available, to_wav16k, wav_duration
 from earshot.live import LiveSession
 from earshot.models import ensure_models
+from earshot.subtitle import SubtitleError, fetch_video_note
 from earshot.transcribe import LocalTranscriber, Segment, TranscribeError
 from earshot.transcribe_cloud import CloudTranscribeError, transcribe_cloud
 
@@ -56,6 +59,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_audio = sub.add_parser("audio", help="转写已有音视频文件并投递")
     _add_common(p_audio)
     p_audio.add_argument("file", type=Path, help="音视频文件路径")
+
+    p_video = sub.add_parser("video", help="B站等视频链接直拉字幕入库(无噪音路线)")
+    _add_common(p_video)
+    p_video.add_argument("url", help="视频链接(B站等 yt-dlp 支持的平台)")
+    p_video.add_argument(
+        "--cookies-from-browser",
+        help="浏览器名(chrome/safari/firefox/edge),拉 AI 字幕(ai-zh)通常需要登录态",
+    )
+
+    p_deliver = sub.add_parser("deliver", help="补投/重投 outbox 里的笔记")
+    p_deliver.add_argument("file", type=Path, help="笔记 md 路径")
+    p_deliver.add_argument("--title", help="标题(默认取首行 # 标题)")
+    p_deliver.add_argument("--tag", action="append", default=None, help="标签,可多次(默认 旁听)")
+    p_deliver.add_argument(
+        "--deliver", choices=["exomind", "webhook", "none"], default="exomind", help="投递方式(默认 exomind)"
+    )
+    p_deliver.add_argument("--webhook", help="webhook 地址(--deliver webhook 时必填)")
 
     sub.add_parser("devices", help="列出可用采集设备")
     sub.add_parser("doctor", help="环境自检")
@@ -122,13 +142,29 @@ def _run_pipeline(
     if args.deliver == "none":
         print("跳过投递(--deliver none)")
         return EXIT_OK
-    result: DeliveryResult
+    return _do_deliver(title, md, md_path, tags, args.deliver, args.webhook, settings)
+
+
+def _do_deliver(
+    title: str,
+    md: str,
+    md_path: Path,
+    tags: list[str],
+    deliver_kind: str,
+    webhook: str | None,
+    settings: Settings,
+) -> int:
+    """执行投递并汇报,返回退出码(webhook / exomind API / exomind CLI)。"""
+    if deliver_kind == "none":
+        print("跳过投递(--deliver none)")
+        return EXIT_OK
+    result: DeliveryResult | None = None
     try:
-        if args.deliver == "webhook":
-            if not args.webhook:
+        if deliver_kind == "webhook":
+            if not webhook:
                 print("✗ --deliver webhook 需要 --webhook <url>")
                 return EXIT_FAIL
-            result = deliver_webhook(args.webhook, title, md, tags)
+            result = deliver_webhook(webhook, title, md, tags)
         elif settings.exomind_api_key:
             result = deliver_exomind_api(md_path, title, tags, settings)  # 直连 API,免装 CLI
         elif shutil.which("exomind"):
@@ -136,9 +172,20 @@ def _run_pipeline(
     except KeyboardInterrupt:
         print("\n⏳ 已中断:内容可能已提交(服务端会继续处理);笔记保留在 outbox")
         return EXIT_OK
-    else:
-        print("✗ failed: 无 exomind 凭据也无 exomind CLI")
+    if result is None:
+        cfg_path = Path.home() / ".exomind" / "config.json"
+        print("✗ failed: 无 exomind 凭据也无 exomind CLI,自诊断:")
+        print(f"  HOME={Path.home()}")
+        print(f"  配置文件 {cfg_path} 存在={cfg_path.is_file()}")
+        if cfg_path.is_file():
+            try:
+                cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+                print(f"  api_key 字段长度={len(str(cfg.get('api_key') or ''))}")
+            except ValueError as e:
+                print(f"  配置文件解析失败: {e}")
+        print(f"  PATH={os.environ.get('PATH', '')[:200]}")
         print("  → exomind login 生成 ~/.exomind/config.json,或 npm i -g exomind,或改用 --deliver webhook/none")
+        print("  → 笔记已留档,环境修好后可用 earshot deliver <md路径> 补投")
         return EXIT_FAIL
     mark = {"delivered": "✓", "pending": "⏳", "failed": "✗"}.get(result.status, "·")
     print(f"{mark} {result.status}: {result.detail}")
@@ -263,6 +310,44 @@ def cmd_audio(args: argparse.Namespace, settings: Settings) -> int:
     return rc
 
 
+def cmd_video(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        meta, segments = fetch_video_note(args.url, args.cookies_from_browser)
+    except SubtitleError as e:
+        print(f"✗ {e}")
+        return EXIT_FAIL
+    print(f"→ {meta.title}(UP:{meta.uploader},字幕:{meta.subtitle_lang},{len(segments)} 段)")
+    if not args.title:
+        args.title = meta.title  # 视频有正标题,优先于首句截断
+    if not args.note:
+        args.note = meta.url  # 脚注默认放原文链接,实体页可回跳
+    note_meta = NoteMeta(
+        started_at=datetime.now(),
+        duration_s=meta.duration_s,
+        device=meta.uploader,
+        source="video",
+        note=args.note,
+    )
+    return _run_pipeline(segments, note_meta, args, settings)
+
+
+def cmd_deliver(args: argparse.Namespace, settings: Settings) -> int:
+    md_path = args.file
+    if not md_path.is_file():
+        print(f"✗ 文件不存在: {md_path}")
+        return EXIT_FAIL
+    md = md_path.read_text(encoding="utf-8")
+    title = args.title
+    if not title:
+        first = next((ln[2:].strip() for ln in md.splitlines() if ln.startswith("# ")), "")
+        title = first or md_path.stem
+    tags = args.tag if args.tag else ["旁听"]
+    if args.deliver == "none":
+        print("跳过投递(--deliver none)")
+        return EXIT_OK
+    return _do_deliver(title, md, md_path, tags, args.deliver, args.webhook, settings)
+
+
 def cmd_devices(_args: argparse.Namespace, _settings: Settings) -> int:
     devices = list_capture_devices()
     if not devices:
@@ -340,6 +425,8 @@ def main(argv: list[str] | None = None) -> int:
     handlers = {
         "listen": cmd_listen,
         "audio": cmd_audio,
+        "video": cmd_video,
+        "deliver": cmd_deliver,
         "devices": cmd_devices,
         "doctor": cmd_doctor,
         "clean": cmd_clean,

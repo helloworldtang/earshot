@@ -17,6 +17,8 @@ dependencies = [
     "imageio-ffmpeg>=0.5",
     # 实时字幕:录音流 48k→16k 在线重采样(流式,不能等录完再重采样)
     "soxr>=0.5",
+    # video 命令:提取B站等平台的元信息与字幕轨(纯 Python,自包含)
+    "yt-dlp>=2025.1",
 ]
 
 [project.scripts]
@@ -50,7 +52,7 @@ strict = true
 files = ["src", "tests"]
 # sherpa-onnx / soundcard 未随 wheel 提供 py.typed —— 与其假装,不如显式忽略
 [[tool.mypy.overrides]]
-module = ["sherpa_onnx.*", "soundcard.*", "onnxruntime.*", "imageio_ffmpeg.*", "soxr.*"]
+module = ["sherpa_onnx.*", "soundcard.*", "onnxruntime.*", "imageio_ffmpeg.*", "soxr.*", "yt_dlp.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

@@ -5,7 +5,8 @@
 听 B站/视频号/播客/讲座时开着它,听完 `Ctrl-C`,录音自动转写为 Markdown 并投递到你的知识库(默认 [ExoMind 知识飞轮](https://exomind.ai-as.cn),可插拔任意 webhook)。纯端侧转写,无限流、零 API 费用。
 
 ```
-系统声音 ──录制──> 16k wav ──silero VAD 切段──> SenseVoice 端侧识别 ──> Markdown ──> 投递(exomind / webhook / 仅存档)
+系统声音 ──录制──> 16k wav ──silero VAD 切段──> SenseVoice 端侧识别(实时字幕) ──> Markdown ──> 投递(exomind / webhook / 仅存档)
+视频链接 ──yt-dlp──> 平台字幕(ai-zh/CC) ────────────────────────────┘(高信噪比路线)
 ```
 
 ## 安装(开箱即用)
@@ -42,16 +43,23 @@ earshot doctor            # 环境自检
 ## 使用
 
 ```bash
-# 旁听模式:开录 → 听 → Ctrl-C 完成 → 自动转写投递(--note/--tag 均可选,默认标签「旁听」)
+# 旁听模式:开录 → 听(实时字幕滚动) → Ctrl-C 完成 → 预览确认 → 投递
 earshot listen
 earshot listen --note "B站·xxx第3期"
+
+# B站等视频链接直拉字幕(高信噪比:无环境噪音/打断;AI 字幕需登录态)
+earshot video "https://www.bilibili.com/video/BVxxxx" --cookies-from-browser chrome
 
 # 已有音视频文件(录屏 mp4 / 语音 m4a / 播客 mp3)
 earshot audio recording.mp4 --title "通勤听书笔记" --deliver none
 
-# 列出采集设备 / 环境自检
+# 补投/重投 outbox 里的笔记(如环境问题当时没投出去)
+earshot deliver ~/.earshot/outbox/20261030-xxxx.md
+
+# 列出采集设备 / 环境自检 / 清理过期留档
 earshot devices
 earshot doctor
+earshot clean --days 30
 ```
 
 常用参数:`--title`(默认取首句截断40字)、`--tag`(可多次)、`--note`(来源备注写入脚注)、
