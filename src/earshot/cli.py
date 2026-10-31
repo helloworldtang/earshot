@@ -14,7 +14,7 @@ import numpy as np
 
 from earshot import __version__
 from earshot.capture import blackhole_missing_hint, list_capture_devices, pick_device, record_to_wav
-from earshot.compose import NoteMeta, derive_title, group_paragraphs, outbox_path, render_markdown
+from earshot.compose import NoteMeta, add_punctuation, derive_title, group_paragraphs, outbox_path, render_markdown
 from earshot.config import Settings, load_settings
 from earshot.deliver import DeliveryResult, deliver_exomind, deliver_exomind_api, deliver_webhook
 from earshot.extract import ExtractError, ffmpeg_available, to_wav16k, wav_duration
@@ -113,6 +113,7 @@ def _run_pipeline(
         print("未识别到语音内容(检查系统输出/设备,或音频本身无人声)")
         return EXIT_NO_CONTENT
 
+    segments = add_punctuation(segments)  # 无标点转写(B站AI字幕)按时间轴补齐;已有标点自动跳过
     title = derive_title(segments, args.title)
     tags = args.tag if args.tag else ["旁听"]
     paragraphs = ["".join(s.text for s in group) for group in group_paragraphs(segments)]

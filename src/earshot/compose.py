@@ -53,6 +53,39 @@ def group_paragraphs(segments: list[Segment], gap_s: float = PARAGRAPH_GAP_S) ->
     return paragraphs
 
 
+SENTENCE_END_GAP_S = 0.8  # 段间隔超过此值视为一句话说完
+_PUNCT_ENDINGS = "。！？；，、,.!?;:"
+
+
+def add_punctuation(segments: list[Segment]) -> list[Segment]:
+    """按时间轴给无标点转写恢复标点(B站 AI 字幕原文无标点;SenseVoice 已有,自动跳过)。
+
+    规则:段尾已有标点不动;与下段时间间隔大→句号(问句语气词→问号),小→逗号;末段补句号。
+
+    Args:
+        segments: 时间排序的转写段。
+
+    Returns:
+        补齐标点的新 Segment 列表(原列表不改)。
+    """
+    out: list[Segment] = []
+    for i, seg in enumerate(segments):
+        text = seg.text.strip()
+        if not text:
+            continue
+        if text[-1] not in _PUNCT_ENDINGS:
+            if i + 1 < len(segments):
+                gap = segments[i + 1].start_s - seg.end_s
+                if gap > SENTENCE_END_GAP_S:
+                    text += "?" if text[-1] in ("吗", "呢", "吧") else "。"
+                else:
+                    text += ","
+            else:
+                text += "?" if text[-1] in ("吗", "呢", "吧") else "。"
+        out.append(Segment(start_s=seg.start_s, end_s=seg.end_s, text=text))
+    return out
+
+
 def derive_title(segments: list[Segment], override: str | None = None) -> str:
     """标题:``--title`` 覆盖优先,否则取首个非空段截断。
 
@@ -62,6 +95,7 @@ def derive_title(segments: list[Segment], override: str | None = None) -> str:
     if override:
         return override.strip()
     first = next((s.text.strip() for s in segments if s.text.strip()), "")
+    first = first.rstrip(_PUNCT_ENDINGS)
     if not first:
         return "(无语音内容)"
     if len(first) > TITLE_MAX_CHARS:

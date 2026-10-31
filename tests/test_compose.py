@@ -5,6 +5,7 @@ from pathlib import Path
 
 from earshot.compose import (
     NoteMeta,
+    add_punctuation,
     derive_title,
     format_duration,
     group_paragraphs,
@@ -51,7 +52,32 @@ def test_derive_title_no_content() -> None:
     assert derive_title([_seg(0, 1, "   ")]) == "(无语音内容)"
 
 
-def test_format_duration() -> None:
+def test_add_punctuation_by_timing() -> None:
+    segs = [
+        _seg(0.0, 2.0, "想理解递归"),      # 与下一段间隔 0.2s → 逗号
+        _seg(2.2, 4.0, "你得先理解递归"),  # 与下一段间隔 1.5s → 句号
+        _seg(5.5, 7.0, "这句话像个玩笑"),  # 末段 → 句号
+    ]
+    out = add_punctuation(segs)
+    assert [s.text for s in out] == ["想理解递归,", "你得先理解递归。", "这句话像个玩笑。"]
+
+
+def test_add_punctuation_question_particle() -> None:
+    segs = [_seg(0, 1, "什么是递归呢"), _seg(2.0, 3, "往下看")]
+    out = add_punctuation(segs)
+    assert out[0].text == "什么是递归呢?"  # 间隔 1s>0.8 且语气词结尾 → 问号
+
+
+def test_add_punctuation_skips_already_punctuated() -> None:
+    segs = [_seg(0, 2, "今天讲递归。"), _seg(2.5, 4, "先看定义。")]
+    out = add_punctuation(segs)
+    assert [s.text for s in out] == ["今天讲递归。", "先看定义。"]  # 原样不动(SenseVoice 路径)
+
+
+def test_add_punctuation_original_list_untouched() -> None:
+    segs = [_seg(0, 1, "无标点"), _seg(1.5, 2, "尾巴")]
+    add_punctuation(segs)
+    assert segs[0].text == "无标点"  # 不可变:返回新列表
     assert format_duration(45) == "45秒"
     assert format_duration(754) == "12分34秒"
     assert format_duration(3723) == "1时02分03秒"
