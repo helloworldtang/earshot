@@ -163,8 +163,11 @@ def fetch_video_note(url: str, cookies_browser: str | None = None) -> tuple[Vide
             tracks += [_Track(lang=lang, url=str(s.get("url") or ""), ext=str(s.get("ext") or "")) for s in subs]
     track = choose_subtitle(tracks)
     if track is None:
-        hint = "。试试 --cookies-from-browser chrome(AI 字幕通常需要登录态)" if not cookies_browser else ""
-        msg = f"无可用中文字幕{hint}"
+        hints = []
+        if not cookies_browser:
+            hints.append("试试 --cookies-from-browser chrome(AI 字幕通常需要登录态)")
+        hints.append("若字幕是烧在画面里的硬字幕(播放器右下角无 CC 开关),字幕轨本来就不存在,请改用 earshot listen 听录")
+        msg = f"无可用中文字幕。{' ; '.join(hints)}"
         raise SubtitleError(msg)
     try:
         resp = httpx.get(track.url, timeout=60.0, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"})
