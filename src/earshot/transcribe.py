@@ -135,6 +135,7 @@ def run_live(
     on_segment: Callable[[Segment], None] | None = None,
     on_progress: Any = None,
     total_samples: int | None = None,
+    max_speech_run_s: float = MAX_SPEECH_RUN_S,
 ) -> list[Segment]:
     """VAD 切段 + 逐段解码核心:批量转写与实时旁听共用。
 
@@ -145,6 +146,9 @@ def run_live(
         on_segment: 每段解码完成即回调(实时字幕用)。
         on_progress: 进度回调(需 total_samples;实时模式无总量则不回调)。
         total_samples: 音频总样本数(进度计算用,实时模式为 None)。
+        max_speech_run_s: 连续无闭段语音超过该秒数强制闭段 —— 批量为防 VAD
+            buffer 溢出(55s),实时为字幕滚动预算(10s):连续口播停顿全部低于
+            min_silence 阈值时,VAD 永不自然闭段,字幕要等收尾 flush 才出。
 
     Returns:
         按时间排序的 Segment 列表。
@@ -181,8 +185,8 @@ def run_live(
             vad.accept_waveform(buf[w * VAD_WINDOW : (w + 1) * VAD_WINDOW])
             fed += VAD_WINDOW
             drain()
-            if bool(vad.is_speech_detected()) and (fed - last_pop) / SAMPLE_RATE > MAX_SPEECH_RUN_S:
-                vad.flush()  # 强制闭段:连续语音超限,防 buffer 溢出
+            if bool(vad.is_speech_detected()) and (fed - last_pop) / SAMPLE_RATE > max_speech_run_s:
+                vad.flush()  # 强制闭段:连续语音超预算(批量=防溢出,实时=字幕滚动)
                 drain()
         carry = buf[n_windows * VAD_WINDOW :]
         if on_progress is not None and total_samples and fed >= next_progress:

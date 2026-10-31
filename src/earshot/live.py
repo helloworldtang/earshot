@@ -15,6 +15,8 @@ import numpy as np
 
 from earshot.transcribe import Segment, TranscribeError, run_live
 
+LIVE_CAPTION_MAX_RUN_S = 10.0  # 字幕滚动预算:连续语音超过该秒数强制闭段出字幕
+
 
 class LiveSession:
     """边录边转会话:push 喂 16k 音频块,finalize 收尾并返回全部 Segment。
@@ -60,6 +62,7 @@ class LiveSession:
                 chunks=self._iter_queue(),
                 decode=self._transcriber._decode,
                 on_segment=lambda seg: self._on_text(seg.text) if self._on_text else None,
+                max_speech_run_s=LIVE_CAPTION_MAX_RUN_S,  # 连续口播停顿<min_silence 时也保证字幕滚动
             )
         except BaseException as e:  # 线程内不可抛,存起来由 finalize 抛
             self._err = e

@@ -104,6 +104,50 @@ def test_live_session_thread_and_finalize() -> None:
     assert seen == ["字幕"] * 64
 
 
+class NoNaturalCloseVad(FakeVad):
+    """从不自然闭段,只有 flush() 才把累积音频闭成一段 —— 模拟连续口播:
+    停顿全部低于 min_silence 阈值,VAD 永不自己 pop。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._closed_pending: list[np.ndarray] = []
+
+    def accept_waveform(self, x: np.ndarray) -> None:  # 只累积不闭段
+        self._pending.append(np.asarray(x, dtype=np.float32))
+        self._fed += len(x)
+
+    def empty(self) -> bool:
+        return not self._closed_pending
+
+    @property
+    def front(self) -> _FakeSeg:
+        return _FakeSeg(0, np.concatenate(self._closed_pending))
+
+    def pop(self) -> None:
+        self._closed_pending = []
+
+    def flush(self) -> None:
+        self._closed_pending, self._pending = self._pending, []
+
+    def is_speech_detected(self) -> bool:
+        return True
+
+
+def test_run_live_force_flush_keeps_captions_rolling() -> None:
+    # 连续口播 + 字幕滚动预算 1s:2 秒音频应中途强制闭段出字幕,而非全等收尾 flush
+    vad = NoNaturalCloseVad()
+    seen: list[Segment] = []
+    segments = run_live(
+        vad=vad,
+        chunks=iter([_windows(64)]),  # 64 窗 ≈ 2.05s
+        decode=_decode,
+        on_segment=seen.append,
+        max_speech_run_s=1.0,
+    )
+    assert len(segments) >= 2  # 中途强制闭段 + 收尾 flush,各出一段
+    assert all(s.text for s in segments)
+
+
 def test_live_session_error_surfaced_at_finalize() -> None:
     class _Boom(_StubTranscriber):
         def _decode(self, samples: np.ndarray) -> str:
