@@ -50,7 +50,7 @@ def _add_common(p: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="earshot", description="旁听剪藏:听到的都能进知识库")
     parser.add_argument("--version", action="version", version=f"earshot {__version__}")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")  # 不带子命令时进入交互向导
 
     p_listen = sub.add_parser("listen", help="录系统声音(Ctrl-C=完成),转写并投递")
     _add_common(p_listen)
@@ -58,11 +58,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_audio = sub.add_parser("audio", help="转写已有音视频文件并投递")
     _add_common(p_audio)
-    p_audio.add_argument("file", type=Path, help="音视频文件路径")
+    p_audio.add_argument("file", type=Path, nargs="?", help="音视频文件路径(缺省时交互询问)")
 
     p_video = sub.add_parser("video", help="B站等视频链接直拉字幕入库(无噪音路线)")
     _add_common(p_video)
-    p_video.add_argument("url", help="视频链接(B站等 yt-dlp 支持的平台)")
+    p_video.add_argument("url", nargs="?", help="视频链接(B站等 yt-dlp 支持的平台;缺省时交互询问)")
     p_video.add_argument(
         "--cookies-from-browser",
         help="浏览器名(chrome/safari/firefox/edge),拉 AI 字幕(ai-zh)通常需要登录态",
@@ -280,6 +280,15 @@ def cmd_listen(args: argparse.Namespace, settings: Settings) -> int:
 
 def cmd_audio(args: argparse.Namespace, settings: Settings) -> int:
     src = args.file
+    if src is None:
+        if not _interactive():
+            print("✗ 缺少文件路径:earshot audio <file>(或交互模式直接 earshot)")
+            return EXIT_FAIL
+        raw = _prompt("音视频文件路径(录屏 mp4 / 语音 m4a / 播客 mp3)")
+        if not raw:
+            print("✗ 未提供文件路径")
+            return EXIT_FAIL
+        src = Path(raw).expanduser()
     if not src.is_file():
         print(f"✗ 文件不存在: {src}")
         return EXIT_FAIL
@@ -310,9 +319,64 @@ def cmd_audio(args: argparse.Namespace, settings: Settings) -> int:
     return rc
 
 
+def _prompt(label: str, default: str = "", default_display: str | None = None) -> str:
+    """交互询问一个字段:回车取默认值。
+
+    Raises:
+        KeyboardInterrupt / EOFError: 交由 main 统一优雅收场。
+    """
+    shown = default_display if default_display is not None else default
+    suffix = f"(回车={shown})" if shown else ""
+    raw = input(f"{label}{suffix}: ").strip()
+    return raw or default
+
+
+def _clipboard_text() -> str:
+    """跨平台读剪贴板文本,不可用时返回空串。"""
+    candidates = (
+        ["pbpaste"],  # macOS
+        ["xclip", "-selection", "clipboard", "-o"],  # Linux(X11)
+        ["xsel", "--clipboard", "--output"],
+        ["powershell", "-NoProfile", "-Command", "Get-Clipboard"],  # Windows
+    )
+    import subprocess
+
+    for cmd in candidates:
+        if not shutil.which(cmd[0]):
+            continue
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)  # noqa: S603
+        except Exception:
+            continue
+        if proc.returncode == 0:
+            return proc.stdout.strip()
+    return ""
+
+
+def _interactive() -> bool:
+    return bool(sys.stdin.isatty())
+
+
 def cmd_video(args: argparse.Namespace, settings: Settings) -> int:
+    url = args.url
+    if not url:
+        if not _interactive():
+            print("✗ 缺少视频链接:earshot video <url>(或交互模式直接 earshot)")
+            return EXIT_FAIL
+        clip = _clipboard_text()
+        if clip.lower().startswith("http"):
+            url = _prompt("视频链接", default=clip, default_display="剪贴板")
+        else:
+            url = _prompt("视频链接")
+        if not url:
+            print("✗ 未提供链接")
+            return EXIT_FAIL
+    cookies = args.cookies_from_browser
+    if cookies is None and _interactive():
+        ans = _prompt("字幕登录态浏览器(拉 AI 字幕用;回车=chrome,输 n 匿名)", default="chrome")
+        cookies = None if ans.lower() == "n" else ans
     try:
-        meta, segments = fetch_video_note(args.url, args.cookies_from_browser)
+        meta, segments = fetch_video_note(url, cookies)
     except SubtitleError as e:
         print(f"✗ {e}")
         return EXIT_FAIL
@@ -320,7 +384,7 @@ def cmd_video(args: argparse.Namespace, settings: Settings) -> int:
     if not args.title:
         args.title = meta.title  # 视频有正标题,优先于首句截断
     if not args.note:
-        args.note = meta.url  # 脚注默认放原文链接,实体页可回跳
+        args.note = url  # 脚注默认放原文链接,实体页可回跳
     note_meta = NoteMeta(
         started_at=datetime.now(),
         duration_s=meta.duration_s,
@@ -431,9 +495,22 @@ def main(argv: list[str] | None = None) -> int:
         "doctor": cmd_doctor,
         "clean": cmd_clean,
     }
+    if args.command is None:
+        if not _interactive():
+            parser.print_help()
+            return EXIT_FAIL
+        choice = _prompt("earshot 模式 [1]听录 [2]视频字幕 [3]本地文件(回车=1;输入 q 退出)", default="1")
+        if choice == "q":
+            return EXIT_OK
+        mapping = {"1": "listen", "2": "video", "3": "audio"}
+        sub = mapping.get(choice)
+        if sub is None:
+            print(f"✗ 无效选择: {choice}")
+            return EXIT_FAIL
+        args = parser.parse_args([sub])  # 取该子命令的默认值
     try:
         return int(handlers[args.command](args, settings))
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, EOFError):
         # Ctrl-C 语义 =「点完成」或「不等了」,不该以 traceback 收场
         print("\n(已中断)")
         return 130
