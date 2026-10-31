@@ -41,22 +41,28 @@ def test_parse_srt_handles_vtt_dots() -> None:
 
 def test_choose_prefers_manual_over_ai() -> None:
     tracks = [
-        _Track(lang="ai-zh", url="https://x/ai.bcc", ext="bcc"),
-        _Track(lang="zh-CN", url="https://x/manual.srt", ext="srt"),
+        _Track(lang="ai-zh", ext="bcc", url="https://x/ai.bcc"),
+        _Track(lang="zh-CN", ext="srt", url="https://x/manual.srt"),
     ]
-    assert choose_subtitle(tracks) == _Track("zh-CN", "https://x/manual.srt", "srt")
+    assert choose_subtitle(tracks) == _Track("zh-CN", "srt", "https://x/manual.srt")
 
 
 def test_choose_prefers_bcc_ext_within_lang() -> None:
     tracks = [
-        _Track(lang="ai-zh", url="https://x/a.srt", ext="srt"),
-        _Track(lang="ai-zh", url="https://x/b.bcc", ext="bcc"),
+        _Track(lang="ai-zh", ext="srt", url="https://x/a.srt"),
+        _Track(lang="ai-zh", ext="bcc", url="https://x/b.bcc"),
     ]
-    assert choose_subtitle(tracks) == _Track("ai-zh", "https://x/b.bcc", "bcc")
+    assert choose_subtitle(tracks) == _Track("ai-zh", "bcc", "https://x/b.bcc")
+
+
+def test_choose_accepts_inline_data_track() -> None:
+    # yt-dlp 对B站 ai-zh 已下载转为内联 data(url 为空)
+    track = _Track(lang="ai-zh", ext="srt", data="1\n00:00:01,000 --> 00:00:02,000\n你好\n")
+    assert choose_subtitle([track]) == track
 
 
 def test_choose_returns_none_when_no_parsable() -> None:
-    assert choose_subtitle([_Track(lang="en", url="https://x/v.vtt", ext="vtt")]) is None
+    assert choose_subtitle([_Track(lang="en", ext="vtt", url="https://x/v.vtt")]) is None
     assert choose_subtitle([]) is None
 
 

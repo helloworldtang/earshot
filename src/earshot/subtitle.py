@@ -48,9 +48,12 @@ class VideoMeta:
 
 @dataclass(frozen=True, slots=True)
 class _Track:
+    """一条字幕轨:url 与 data 二选一(yt-dlp 对B站已下载转内联 data)。"""
+
     lang: str
-    url: str
     ext: str
+    url: str = ""
+    data: str = ""
 
 
 def choose_subtitle(tracks: list[_Track]) -> _Track | None:
@@ -60,7 +63,7 @@ def choose_subtitle(tracks: list[_Track]) -> _Track | None:
     """
     by_lang: dict[str, list[_Track]] = {}
     for t in tracks:
-        if t.ext in PARSABLE_EXTS and t.url:
+        if t.ext in PARSABLE_EXTS and (t.url or t.data):
             by_lang.setdefault(t.lang, []).append(t)
     for lang in PREFERRED_LANGS:
         candidates = by_lang.get(lang)
@@ -145,6 +148,10 @@ def fetch_video_note(url: str, cookies_browser: str | None = None) -> tuple[Vide
         "no_warnings": True,
         "skip_download": True,
         "noplaylist": True,
+        # yt-dlp 契约:不设 writesubtitles,提取器根本不会调字幕接口(info["subtitles"] 恒空)
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": list(PREFERRED_LANGS) + ["zh-Hant", "en"],
     }
     if cookies_browser:
         opts["cookiesfrombrowser"] = (cookies_browser,)
@@ -160,7 +167,15 @@ def fetch_video_note(url: str, cookies_browser: str | None = None) -> tuple[Vide
     tracks: list[_Track] = []
     for field in ("subtitles", "automatic_captions"):
         for lang, subs in (info.get(field) or {}).items():
-            tracks += [_Track(lang=lang, url=str(s.get("url") or ""), ext=str(s.get("ext") or "")) for s in subs]
+            for s in subs:
+                tracks.append(
+                    _Track(
+                        lang=lang,
+                        ext=str(s.get("ext") or "srt"),
+                        url=str(s.get("url") or ""),
+                        data=str(s.get("data") or ""),
+                    )
+                )
     track = choose_subtitle(tracks)
     if track is None:
         hints = []
@@ -169,13 +184,17 @@ def fetch_video_note(url: str, cookies_browser: str | None = None) -> tuple[Vide
         hints.append("若字幕是烧在画面里的硬字幕(播放器右下角无 CC 开关),字幕轨本来就不存在,请改用 earshot listen 听录")
         msg = f"无可用中文字幕。{' ; '.join(hints)}"
         raise SubtitleError(msg)
-    try:
-        resp = httpx.get(track.url, timeout=60.0, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"})
-        resp.raise_for_status()
-    except httpx.HTTPError as e:
-        msg = f"字幕下载失败({track.lang}/{track.ext}): {e}"
-        raise SubtitleError(msg) from e
-    segments = parse_subtitle(resp.text, track.ext)
+    if track.data:  # yt-dlp 已下载并转好格式(B站 ai-zh 即此路径)
+        content = track.data
+    else:
+        try:
+            resp = httpx.get(track.url, timeout=60.0, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+        except httpx.HTTPError as e:
+            msg = f"字幕下载失败({track.lang}/{track.ext}): {e}"
+            raise SubtitleError(msg) from e
+        content = resp.text
+    segments = parse_subtitle(content, track.ext)
     meta = VideoMeta(
         title=str(info.get("title") or url),
         uploader=str(info.get("uploader") or info.get("channel") or "-"),
