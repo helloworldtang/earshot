@@ -361,6 +361,14 @@ def _interactive() -> bool:
     return bool(sys.stdin.isatty())
 
 
+def _short_url(url: str, max_len: int = 60) -> str:
+    """URL 展示形态:去追踪参数,超长截断 —— 让用户看清回车将用哪条链接。"""
+    base = url.split("?", 1)[0]
+    if len(base) > max_len:
+        base = base[:max_len] + "…"
+    return base
+
+
 def cmd_video(args: argparse.Namespace, settings: Settings) -> int:
     url = args.url
     if not url:
@@ -369,7 +377,7 @@ def cmd_video(args: argparse.Namespace, settings: Settings) -> int:
             return EXIT_FAIL
         clip = _clipboard_text()
         if clip.lower().startswith("http"):
-            url = _prompt("视频链接", default=clip, default_display="剪贴板")
+            url = _prompt("视频链接", default=clip, default_display=f"剪贴板 {_short_url(clip)}")
         else:
             url = _prompt("视频链接")
         if not url:

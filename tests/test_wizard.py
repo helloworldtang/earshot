@@ -56,3 +56,10 @@ def test_positionals_still_accept_args() -> None:
 def test_clipboard_text_returns_str_without_crash() -> None:
     out = cli._clipboard_text()
     assert isinstance(out, str)
+
+
+def test_short_url_strips_tracking_and_truncates() -> None:
+    long_q = "https://www.bilibili.com/video/BV16qpF64E6V/?trackid=web_pegasus_0.router-2479516&spm_id_from=333.1007"
+    assert cli._short_url(long_q) == "https://www.bilibili.com/video/BV16qpF64E6V/"
+    assert cli._short_url("https://" + "a" * 100).endswith("…")
+    assert len(cli._short_url("https://" + "a" * 100)) == 61
