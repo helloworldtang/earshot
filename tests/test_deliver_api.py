@@ -22,6 +22,23 @@ def test_client_key_stable_and_content_bound() -> None:
     assert len(client_key_for("abc")) == 64
 
 
+def test_deliver_api_done_receipt_counts_as_int(tmp_path: Path) -> None:
+    """回执字段为个数(int)时也须正常 —— 真实事故:entities 为 int 导致 len() 崩溃。"""
+    md = tmp_path / "note.md"
+    md.write_text("内容", encoding="utf-8")
+
+    def poster(_u: str, _p: dict[str, Any], _h: dict[str, str]) -> dict[str, Any]:
+        return {"job_id": "j-int"}
+
+    def getter(_u: str, _p: dict[str, str], _h: dict[str, str]) -> dict[str, Any]:
+        return {"status": "done", "entities": 7, "created_pages": 2, "updated_pages": 3}
+
+    result = deliver_exomind_api(md, "t", [], _settings(), poster=poster, getter=getter, poll_interval_s=0)
+    assert result.status == "delivered"
+    assert "实体 7 个" in result.detail
+    assert "+2/更3" in result.detail
+
+
 def test_deliver_api_done_receipt(tmp_path: Path) -> None:
     md = tmp_path / "note.md"
     md.write_text("# 标题\n正文", encoding="utf-8")

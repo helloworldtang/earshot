@@ -124,6 +124,15 @@ def client_key_for(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
+def _as_count(value: Any) -> int:
+    """回执计数兼容:服务端字段时而为个数(int)、时而为列表,统一取数。"""
+    if isinstance(value, int):
+        return value
+    if isinstance(value, list):
+        return len(value)
+    return 0
+
+
 def deliver_exomind_api(
     md_path: Path,
     title: str,
@@ -192,10 +201,10 @@ def deliver_exomind_api(
                 return DeliveryResult("failed", f"查询回执失败(job_id={job_id}): {e}")
             status = st.get("status")
             if status == "done":
-                entities = st.get("entities") or []
-                pages = st.get("created_pages") or []
-                updated = st.get("updated_pages") or []
-                detail = f"已入库:实体 {len(entities)} 个,页面 +{len(pages)}/更{len(updated)}(job_id={job_id})"
+                n_entities = _as_count(st.get("entities"))
+                n_pages = _as_count(st.get("created_pages"))
+                n_updated = _as_count(st.get("updated_pages"))
+                detail = f"已入库:实体 {n_entities} 个,页面 +{n_pages}/更{n_updated}(job_id={job_id})"
                 return DeliveryResult("delivered", detail)
             if status == "failed":
                 return DeliveryResult("failed", f"服务端抽取失败: {st.get('error', '未知')}(job_id={job_id})")
