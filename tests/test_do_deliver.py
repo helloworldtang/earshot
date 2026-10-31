@@ -29,7 +29,7 @@ def test_successful_api_delivery_returns_ok_not_false_failure(
     md = tmp_path / "note.md"
     md.write_text("# t\n正文", encoding="utf-8")
 
-    def fake_api(_md: Path, _title: str, _tags: list[str], _s: Settings) -> DeliveryResult:
+    def fake_api(_md: Path, _title: str, _tags: list[str], _s: Settings, **_kw: str) -> DeliveryResult:
         return DeliveryResult("delivered", "已入库:实体 3 个")
 
     monkeypatch.setattr(cli, "deliver_exomind_api", fake_api)
