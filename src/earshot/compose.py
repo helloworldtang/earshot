@@ -10,6 +10,8 @@ from pathlib import Path
 from earshot.transcribe import Segment
 
 PARAGRAPH_GAP_S = 2.5  # 段间隔超过此值即换段(自然段)
+PARAGRAPH_MAX_CHARS = 400  # 单段上限,超出在句号处拆(口播字幕无长停顿时的兜底)
+SENTENCE_MAX_CHARS = 60  # 句长预算:连续无句号超过该字数,强制断句
 TITLE_MAX_CHARS = 40
 
 SOURCE_LABELS = {"listen": "旁听录音", "audio": "音频文件", "video": "视频字幕"}
@@ -34,23 +36,50 @@ class NoteMeta:
     note: str
 
 
-def group_paragraphs(segments: list[Segment], gap_s: float = PARAGRAPH_GAP_S) -> list[list[Segment]]:
-    """按段间隔聚段为自然段。
+def group_paragraphs(
+    segments: list[Segment],
+    gap_s: float = PARAGRAPH_GAP_S,
+    chapter_breaks: list[float] | None = None,
+) -> list[list[Segment]]:
+    """聚段为自然段:章节边界 > 时间间隔 > 长度兜底。
 
     Args:
         segments: 时间排序的转写段。
         gap_s: 相邻段时间间隔超过该值则分段。
+        chapter_breaks: 视频章节起点(秒,B站章节标记),跨过即强制换段。
 
     Returns:
-        段的列表(每个元素是一个自然段)。
+        段的列表(每个元素是一个自然段);单段不超过 PARAGRAPH_MAX_CHARS 字(句号处拆)。
     """
+    chapters = sorted(chapter_breaks or [])
     paragraphs: list[list[Segment]] = []
     for seg in segments:
-        if paragraphs and seg.start_s - paragraphs[-1][-1].end_s <= gap_s:
-            paragraphs[-1].append(seg)
-        else:
+        make_new = not paragraphs or seg.start_s - paragraphs[-1][-1].end_s > gap_s
+        if not make_new and chapters and paragraphs:
+            prev_start = paragraphs[-1][0].start_s  # 现段起点跨过章节边界而本段首未跨 → 新段
+            make_new = any(prev_start < cb <= seg.start_s for cb in chapters)
+        if make_new:
             paragraphs.append([seg])
-    return paragraphs
+        else:
+            paragraphs[-1].append(seg)
+
+    result: list[list[Segment]] = []
+    for para in paragraphs:
+        if sum(len(s.text) for s in para) <= PARAGRAPH_MAX_CHARS:
+            result.append(para)
+            continue
+        current: list[Segment] = []
+        current_chars = 0
+        for s in para:  # 超长段在句号处拆(口播字幕无长停顿时的兜底)
+            current.append(s)
+            current_chars += len(s.text)
+            if current_chars >= PARAGRAPH_MAX_CHARS and s.text.rstrip().endswith(("。", "?", "!", "！", "？")):
+                result.append(current)
+                current = []
+                current_chars = 0
+        if current:
+            result.append(current)
+    return result
 
 
 SENTENCE_END_GAP_S = 0.8  # 段间隔超过此值视为一句话说完
@@ -61,6 +90,8 @@ def add_punctuation(segments: list[Segment]) -> list[Segment]:
     """按时间轴给无标点转写恢复标点(B站 AI 字幕原文无标点;SenseVoice 已有,自动跳过)。
 
     规则:段尾已有标点不动;与下段时间间隔大→句号(问句语气词→问号),小→逗号;末段补句号。
+    句长预算:连续无句号超过 SENTENCE_MAX_CHARS 字时强制断句(口播字幕行间隔密集,
+    固定间隔阈值会漏断,产生超长逗号串)。
 
     Args:
         segments: 时间排序的转写段。
@@ -69,19 +100,25 @@ def add_punctuation(segments: list[Segment]) -> list[Segment]:
         补齐标点的新 Segment 列表(原列表不改)。
     """
     out: list[Segment] = []
+    chars_since_period = 0
     for i, seg in enumerate(segments):
         text = seg.text.strip()
         if not text:
             continue
-        if text[-1] not in _PUNCT_ENDINGS:
-            if i + 1 < len(segments):
-                gap = segments[i + 1].start_s - seg.end_s
-                if gap > SENTENCE_END_GAP_S:
-                    text += "?" if text[-1] in ("吗", "呢", "吧") else "。"
-                else:
-                    text += ","
-            else:
+        chars_since_period += len(text)
+        if text[-1] in _PUNCT_ENDINGS:
+            if text[-1] in "。！？!?":
+                chars_since_period = 0
+        elif i + 1 < len(segments):
+            gap = segments[i + 1].start_s - seg.end_s
+            if gap > SENTENCE_END_GAP_S or chars_since_period >= SENTENCE_MAX_CHARS:
                 text += "?" if text[-1] in ("吗", "呢", "吧") else "。"
+                chars_since_period = 0
+            else:
+                text += ","
+        else:
+            text += "?" if text[-1] in ("吗", "呢", "吧") else "。"
+            chars_since_period = 0
         out.append(Segment(start_s=seg.start_s, end_s=seg.end_s, text=text))
     return out
 
@@ -135,7 +172,9 @@ def render_markdown(meta: NoteMeta, paragraphs: list[str], title: str) -> str:
     """
     source_label = SOURCE_LABELS.get(meta.source, meta.source)
     lines = [f"# {title}", ""]
-    lines.extend(paragraphs)
+    for para in paragraphs:  # Markdown 相邻行会合并同段,段落间必须空行
+        lines.append(para)
+        lines.append("")
     lines += [
         "",
         "---",

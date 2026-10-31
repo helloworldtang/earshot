@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -44,6 +44,7 @@ class VideoMeta:
     duration_s: float
     url: str
     subtitle_lang: str
+    chapter_starts: list[float] = field(default_factory=list)  # 章节起点(秒),按章节分段
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,8 +166,8 @@ def fetch_video_note(url: str, cookies_browser: str | None = None) -> tuple[Vide
         raise SubtitleError(msg)
 
     tracks: list[_Track] = []
-    for field in ("subtitles", "automatic_captions"):
-        for lang, subs in (info.get(field) or {}).items():
+    for subs_field in ("subtitles", "automatic_captions"):
+        for lang, subs in (info.get(subs_field) or {}).items():
             for s in subs:
                 tracks.append(
                     _Track(
@@ -201,5 +202,6 @@ def fetch_video_note(url: str, cookies_browser: str | None = None) -> tuple[Vide
         duration_s=float(info.get("duration") or 0),
         url=url,
         subtitle_lang=track.lang,
+        chapter_starts=[float(c["start_time"]) for c in (info.get("chapters") or []) if "start_time" in c],
     )
     return meta, segments

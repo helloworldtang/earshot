@@ -107,6 +107,7 @@ def _run_pipeline(
     meta: NoteMeta,
     args: argparse.Namespace,
     settings: Settings,
+    chapter_breaks: list[float] | None = None,
 ) -> int:
     """组装 md → 落 outbox → 投递,返回退出码。"""
     if not any(s.text.strip() for s in segments):
@@ -116,7 +117,7 @@ def _run_pipeline(
     segments = add_punctuation(segments)  # 无标点转写(B站AI字幕)按时间轴补齐;已有标点自动跳过
     title = derive_title(segments, args.title)
     tags = args.tag if args.tag else ["旁听"]
-    paragraphs = ["".join(s.text for s in group) for group in group_paragraphs(segments)]
+    paragraphs = ["".join(s.text for s in group) for group in group_paragraphs(segments, chapter_breaks=chapter_breaks)]
     md = render_markdown(meta, paragraphs, title)
 
     outbox = args.out if args.out else settings.outbox
@@ -393,7 +394,7 @@ def cmd_video(args: argparse.Namespace, settings: Settings) -> int:
         source="video",
         note=args.note,
     )
-    return _run_pipeline(segments, note_meta, args, settings)
+    return _run_pipeline(segments, note_meta, args, settings, chapter_breaks=meta.chapter_starts)
 
 
 def cmd_deliver(args: argparse.Namespace, settings: Settings) -> int:

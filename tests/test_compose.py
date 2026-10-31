@@ -62,6 +62,42 @@ def test_add_punctuation_by_timing() -> None:
     assert [s.text for s in out] == ["想理解递归,", "你得先理解递归。", "这句话像个玩笑。"]
 
 
+def test_add_punctuation_sentence_budget_forces_period() -> None:
+    # 口播字幕密集场景:行间隔全 < 0.8s,靠句长预算强制断句
+    texts = ["连续口播没有停顿" * 5 for _ in range(4)]  # 每段 30 字
+    segs = []
+    t = 0.0
+    for tx in texts:
+        segs.append(_seg(t, t + 2.8, tx))
+        t += 3.0  # 间隔 0.2s
+    out = add_punctuation(segs)
+    marks = [s.text[-1] for s in out]
+    # 60 字预算:第 2 段(累计 60 字)起强制句号
+    assert marks[0] == ","
+    assert "。" in marks
+
+
+def test_group_paragraphs_by_chapter_breaks() -> None:
+    segs = [
+        _seg(0.0, 9.0, "第一章节内容。"),  # 章节起点 60s,此处按间隔聚合
+        _seg(9.2, 19.0, "仍在第一章。"),
+        _seg(19.2, 29.0, "第二章开始。"),
+    ]
+    groups = group_paragraphs(segs, chapter_breaks=[15.0])
+    assert len(groups) == 2
+    assert groups[0][0].text.startswith("第一章节")
+    assert groups[1][0].text.startswith("第二章")
+
+
+def test_group_paragraphs_splits_overlong_paragraph() -> None:
+    from earshot.compose import PARAGRAPH_MAX_CHARS
+
+    segs = [_seg(i * 2.0, i * 2.0 + 1.9, f"第{i}句完整的话。") for i in range(80)]  # ~720 字,远超上限
+    groups = group_paragraphs(segs)
+    assert len(groups) > 1
+    assert all(sum(len(s.text) for s in g) < PARAGRAPH_MAX_CHARS + 30 for g in groups)
+
+
 def test_add_punctuation_question_particle() -> None:
     segs = [_seg(0, 1, "什么是递归呢"), _seg(2.0, 3, "往下看")]
     out = add_punctuation(segs)
