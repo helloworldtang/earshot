@@ -59,7 +59,7 @@ def test_add_punctuation_by_timing() -> None:
         _seg(5.5, 7.0, "这句话像个玩笑"),  # 末段 → 句号
     ]
     out = add_punctuation(segs)
-    assert [s.text for s in out] == ["想理解递归,", "你得先理解递归。", "这句话像个玩笑。"]
+    assert [s.text for s in out] == ["想理解递归，", "你得先理解递归。", "这句话像个玩笑。"]
 
 
 def test_add_punctuation_sentence_budget_forces_period() -> None:
@@ -73,7 +73,7 @@ def test_add_punctuation_sentence_budget_forces_period() -> None:
     out = add_punctuation(segs)
     marks = [s.text[-1] for s in out]
     # 60 字预算:第 2 段(累计 60 字)起强制句号
-    assert marks[0] == ","
+    assert marks[0] == "，"
     assert "。" in marks
 
 
@@ -101,7 +101,7 @@ def test_group_paragraphs_splits_overlong_paragraph() -> None:
 def test_add_punctuation_question_particle() -> None:
     segs = [_seg(0, 1, "什么是递归呢"), _seg(2.0, 3, "往下看")]
     out = add_punctuation(segs)
-    assert out[0].text == "什么是递归呢?"  # 间隔 1s>0.8 且语气词结尾 → 问号
+    assert out[0].text == "什么是递归呢？"  # 间隔 1s>0.8 且语气词结尾 → 问号
 
 
 def test_add_punctuation_skips_already_punctuated() -> None:

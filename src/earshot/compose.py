@@ -113,12 +113,12 @@ def add_punctuation(segments: list[Segment]) -> list[Segment]:
         elif i + 1 < len(segments):
             gap = segments[i + 1].start_s - seg.end_s
             if gap > SENTENCE_END_GAP_S or chars_since_period >= SENTENCE_MAX_CHARS:
-                text += "?" if text[-1] in ("吗", "呢", "吧") else "。"
+                text += "？" if text[-1] in ("吗", "呢", "吧") else "。"
                 chars_since_period = 0
             else:
-                text += ","
+                text += "，"
         else:
-            text += "?" if text[-1] in ("吗", "呢", "吧") else "。"
+            text += "？" if text[-1] in ("吗", "呢", "吧") else "。"
             chars_since_period = 0
         out.append(Segment(start_s=seg.start_s, end_s=seg.end_s, text=text))
     return out
