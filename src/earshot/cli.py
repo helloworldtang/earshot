@@ -323,12 +323,30 @@ def cmd_audio(args: argparse.Namespace, settings: Settings) -> int:
     return rc
 
 
-def _prompt(label: str, default: str = "", default_display: str | None = None) -> str:
+def _prompt(label: str, default: str = "", default_display: str | None = None, prefill: bool = False) -> str:
     """交互询问一个字段:回车取默认值。
+
+    prefill=True 且默认值非空时,默认值经 readline 预填在冒号后(可见可编辑,
+    回车即用);readline 不可用或值过长时回退到括号提示形态。
 
     Raises:
         KeyboardInterrupt / EOFError: 交由 main 统一优雅收场。
     """
+    if prefill and default and len(default) <= 120:
+        try:
+            import readline
+
+            def _hook() -> None:
+                readline.insert_text(default)
+                readline.redisplay()
+
+            readline.set_startup_hook(_hook)
+            try:
+                return input(f"{label}(回车用预填): ").strip() or default
+            finally:
+                readline.set_startup_hook(None)
+        except ImportError:
+            pass  # 无 readline(极少见构建) → 走括号提示
     shown = default_display if default_display is not None else default
     suffix = f"(回车={shown})" if shown else ""
     raw = input(f"{label}{suffix}: ").strip()
@@ -377,7 +395,8 @@ def cmd_video(args: argparse.Namespace, settings: Settings) -> int:
             return EXIT_FAIL
         clip = _clipboard_text()
         if clip.lower().startswith("http"):
-            url = _prompt("视频链接", default=clip, default_display=f"剪贴板 {_short_url(clip)}")
+            # 预填剪贴板链接(去追踪参数):所见即所用,回车即取、可退格改
+            url = _prompt("视频链接", default=_short_url(clip), prefill=True)
         else:
             url = _prompt("视频链接")
         if not url:
