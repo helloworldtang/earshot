@@ -34,6 +34,7 @@ class NoteMeta:
     device: str
     source: str
     note: str
+    source_url: str = ""  # 原文链接(video 路线=视频 URL),投递时传服务端作 source_url 留痕
 
 
 def group_paragraphs(

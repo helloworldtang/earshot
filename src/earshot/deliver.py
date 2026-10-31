@@ -142,6 +142,7 @@ def deliver_exomind_api(
     getter: Callable[[str, dict[str, str], dict[str, str]], dict[str, Any]] | None = None,
     poll_interval_s: float = INGEST_POLL_INTERVAL_S,
     poll_budget_s: float = INGEST_POLL_BUDGET_S,
+    source_url: str | None = None,
 ) -> DeliveryResult:
     """直连 exomind HTTP API 投递(免装 exomind CLI)。
 
@@ -156,6 +157,7 @@ def deliver_exomind_api(
         poster: ``(url, payload, headers) -> 响应 dict``(测试注入)。
         getter: ``(url, params, headers) -> 响应 dict``(测试注入)。
         poll_interval_s / poll_budget_s: 轮询节奏与总预算。
+        source_url: 原文链接(video 路线);content+url 并存时服务端仅作出处留痕,不抓取。
 
     Returns:
         DeliveryResult。
@@ -184,6 +186,8 @@ def deliver_exomind_api(
         payload["title"] = title
     if tags:
         payload["tags"] = tags
+    if source_url:
+        payload["url"] = source_url
     try:
         resp = post(f"{base}/ingest/async", payload, headers)
     except Exception as e:

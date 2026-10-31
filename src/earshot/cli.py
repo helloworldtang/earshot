@@ -144,7 +144,7 @@ def _run_pipeline(
     if args.deliver == "none":
         print("跳过投递(--deliver none)")
         return EXIT_OK
-    return _do_deliver(title, md, md_path, tags, args.deliver, args.webhook, settings)
+    return _do_deliver(title, md, md_path, tags, args.deliver, args.webhook, settings, meta.source_url)
 
 
 def _do_deliver(
@@ -155,6 +155,7 @@ def _do_deliver(
     deliver_kind: str,
     webhook: str | None,
     settings: Settings,
+    source_url: str = "",
 ) -> int:
     """执行投递并汇报,返回退出码(webhook / exomind API / exomind CLI)。"""
     if deliver_kind == "none":
@@ -168,7 +169,8 @@ def _do_deliver(
                 return EXIT_FAIL
             result = deliver_webhook(webhook, title, md, tags)
         elif settings.exomind_api_key:
-            result = deliver_exomind_api(md_path, title, tags, settings)  # 直连 API,免装 CLI
+            # 直连 API,免装 CLI;video 路线带 source_url 作出处留痕
+            result = deliver_exomind_api(md_path, title, tags, settings, source_url=source_url or None)
         elif shutil.which("exomind"):
             result = deliver_exomind(md_path, title, tags)  # 无凭据但有 CLI,回退
     except KeyboardInterrupt:
@@ -393,6 +395,7 @@ def cmd_video(args: argparse.Namespace, settings: Settings) -> int:
         device=meta.uploader,
         source="video",
         note=args.note,
+        source_url=meta.url,
     )
     return _run_pipeline(segments, note_meta, args, settings, chapter_breaks=meta.chapter_starts)
 

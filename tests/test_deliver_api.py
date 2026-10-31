@@ -121,6 +121,44 @@ def test_missing_models_detection(tmp_path: Path) -> None:
     assert missing_models(tmp_path) == ["asr/model.int8.onnx", "vad/silero_vad.onnx"]
 
 
+def test_deliver_api_passes_source_url(tmp_path: Path) -> None:
+    """wire 契约:video 路线带 source_url → payload['url'](服务端仅留痕不抓取)。"""
+    md = tmp_path / "note.md"
+    md.write_text("内容", encoding="utf-8")
+    seen: dict[str, Any] = {}
+
+    def poster(_u: str, payload: dict[str, Any], _h: dict[str, str]) -> dict[str, Any]:
+        seen.update(payload)
+        return {"job_id": "j-url"}
+
+    def getter(_u: str, _p: dict[str, str], _h: dict[str, str]) -> dict[str, Any]:
+        return {"status": "done", "entities": 1}
+
+    result = deliver_exomind_api(
+        md, "t", [], _settings(), poster=poster, getter=getter, poll_interval_s=0,
+        source_url="https://www.bilibili.com/video/BV16qpF64E6V/",
+    )
+    assert result.status == "delivered"
+    assert seen["url"] == "https://www.bilibili.com/video/BV16qpF64E6V/"
+    assert seen["content"]  # 正文照常在
+
+
+def test_deliver_api_omits_url_when_absent(tmp_path: Path) -> None:
+    md = tmp_path / "note.md"
+    md.write_text("内容", encoding="utf-8")
+    seen: dict[str, Any] = {}
+
+    def poster(_u: str, payload: dict[str, Any], _h: dict[str, str]) -> dict[str, Any]:
+        seen.update(payload)
+        return {"job_id": "j2"}
+
+    def getter(_u: str, _p: dict[str, str], _h: dict[str, str]) -> dict[str, Any]:
+        return {"status": "done"}
+
+    deliver_exomind_api(md, "t", [], _settings(), poster=poster, getter=getter, poll_interval_s=0)
+    assert "url" not in seen  # listen/audio 路线不带
+
+
 def test_deliver_api_ctrl_c_during_poll_is_pending(tmp_path: Path) -> None:
     md = tmp_path / "note.md"
     md.write_text("内容", encoding="utf-8")
