@@ -1,6 +1,6 @@
 [project]
 name = "earshot-cli"
-version = "0.1.0"
+version = "0.1.1"
 description = "旁听剪藏:跨平台桌面端系统声录制 → 本地转写 → 投递知识库(默认 ExoMind,可插拔)"
 readme = "README.md"
 license = "MIT"
@@ -43,6 +43,7 @@ Issues = "https://github.com/helloworldtang/earshot/issues"
 
 [project.scripts]
 earshot = "earshot.cli:main"
+earshot-cli = "earshot.cli:main"  # 别名:包名直觉党与命令名党的双入口
 
 [dependency-groups]
 dev = [

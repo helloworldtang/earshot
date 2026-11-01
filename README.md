@@ -12,8 +12,8 @@
 ## 安装(开箱即用)
 
 ```bash
-uv tool install earshot-cli   # 或 pipx install earshot-cli;安装后命令名是 earshot
-earshot doctor                # 环境自检
+uv tool install earshot-cli   # 或 pipx install earshot-cli
+earshot doctor                # 环境自检;earshot 与 earshot-cli 两个命令名等价可用
 ```
 
 源码安装请**锁版本 tag**,不要引滚动的 `main`(消费方 `uv sync`/`pip install` 会隐性升级到未审阅代码;升级应当是显式改版本号的决策):

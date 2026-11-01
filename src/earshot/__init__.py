@@ -4,4 +4,4 @@
 → 组装 Markdown → 投递(默认 exomind CLI,可插拔 webhook)。
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
