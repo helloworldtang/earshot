@@ -1,9 +1,24 @@
 [project]
-name = "earshot"
+name = "earshot-cli"
 version = "0.1.0"
 description = "旁听剪藏:跨平台桌面端系统声录制 → 本地转写 → 投递知识库(默认 ExoMind,可插拔)"
 readme = "README.md"
 license = "MIT"
+authors = [{ name = "Jackie" }]
+keywords = ["transcription", "asr", "sensevoice", "bilibili", "subtitle", "knowledge-base", "cli"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: Chinese (Simplified)",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Utilities",
+]
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=1.26",
@@ -20,6 +35,11 @@ dependencies = [
     # video 命令:提取B站等平台的元信息与字幕轨(纯 Python,自包含)
     "yt-dlp>=2025.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/helloworldtang/earshot"
+Repository = "https://github.com/helloworldtang/earshot"
+Issues = "https://github.com/helloworldtang/earshot/issues"
 
 [project.scripts]
 earshot = "earshot.cli:main"

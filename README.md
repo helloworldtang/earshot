@@ -12,8 +12,14 @@
 ## 安装(开箱即用)
 
 ```bash
-uv tool install earshot   # 或 pipx install earshot(发布 PyPI 后);源码:uv tool install git+<repo>
-earshot doctor            # 环境自检
+uv tool install earshot-cli   # 或 pipx install earshot-cli;安装后命令名是 earshot
+earshot doctor                # 环境自检
+```
+
+源码安装请**锁版本 tag**,不要引滚动的 `main`(消费方 `uv sync`/`pip install` 会隐性升级到未审阅代码;升级应当是显式改版本号的决策):
+
+```bash
+uv tool install "earshot-cli @ https://github.com/helloworldtang/earshot/archive/refs/tags/v0.1.0.tar.gz"
 ```
 
 - **零系统依赖**:ffmpeg 已随 Python wheel 内置([imageio-ffmpeg](https://pypi.org/project/imageio-ffmpeg),MoviePy 同款),无需 brew/apt。
