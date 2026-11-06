@@ -31,6 +31,38 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 uv --version
 ```
 
+<details>
+<summary><b>国内网络看这里</b>(直连 GitHub/PyPI 慢或超时)</summary>
+
+uv 官方安装脚本与 Python 下载默认走 GitHub、包索引走 PyPI 官方,大陆网络可能超时。两条路任选:
+
+**路线 A(推荐,一条命令全搞定)**:[uv.agentsmirror.com](https://github.com/Wangnov/uv-custom) 公益镜像——分发的是官方原版安装脚本,只把下载源切到国内,并自动写入 Python 下载镜像与 PyPI 镜像配置:
+
+```bash
+# macOS / Linux
+curl -LsSf https://uv.agentsmirror.com/install-cn.sh | sh
+# Windows(PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://uv.agentsmirror.com/install-cn.ps1 | iex"
+```
+
+装完直接跳到第 2 步,后续 `uv tool install` 的包下载也已走国内源。
+
+**路线 B(已装 Python 的用户)**:用 pip 从清华源装 uv:
+
+```bash
+pip install uv -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+再给 uv 配国内 PyPI 源(一劳永逸,写入 `~/.config/uv/uv.toml`):
+
+```bash
+printf '[[index]]\nurl = "https://pypi.tuna.tsinghua.edu.cn/simple"\ndefault = true\n' > ~/.config/uv/uv.toml
+```
+
+> 路线 B 未覆盖「uv 自动下载 Python」这一步(仍走 GitHub):若第 2 步卡在下载 Python 且本机 Python 版本低于 3.12,改走路线 A(它会一并配好 Python 下载镜像)。
+
+</details>
+
 **第 2 步:安装 earshot**(uv 自动下载 Python ≥3.12 与全部依赖,含内置 ffmpeg)
 
 ```bash
