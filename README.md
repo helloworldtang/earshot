@@ -33,6 +33,7 @@ uv tool install "earshot-cli @ https://github.com/helloworldtang/earshot/archive
 - **零系统依赖**:ffmpeg 已随 Python wheel 内置([imageio-ffmpeg](https://pypi.org/project/imageio-ffmpeg),MoviePy 同款),无需 brew/apt。
 - **模型首次运行自动下载**:SenseVoice int8 + silero VAD(~230MB,默认走 hf-mirror,`HF_ENDPOINT` 可覆盖),装完不再下。
 - **投递免装 CLI**:默认直连 ExoMind HTTP API(复用 `~/.exomind/config.json` 凭据);没有凭据但有 exomind CLI 时自动回退;也支持任意 webhook。
+- **独立登录免装 emcli**:`earshot login` 设备流浏览器授权,直接写入 `~/.exomind/config.json`(与 emcli 共用同一凭据文件);已装 emcli 且登录过则无需再登。
 
 ### 平台采集矩阵
 
@@ -80,6 +81,9 @@ earshot clean --days 30
 `--engine server`(改走云端 dashscope 转写,复用 `~/.exomind/config.json` 凭据)、
 `--deliver webhook --webhook <url>`(投递到任意知识库,POST JSON `{origin,title,content,tags}`)、
 `--deliver none`(只落 `~/.earshot/outbox/` 存档)。
+
+首次使用取凭据:`earshot login`(浏览器设备流授权;凭据仍有效时直接返回,`--force` 强制重登),
+或设 `EXOMIND_API_KEY` 环境变量(从 exomind 网页 `/ui/account` 复制)。
 
 笔记留档:`~/.earshot/outbox/YYYYMMDD-HHMMSS-<标题>.md`。
 

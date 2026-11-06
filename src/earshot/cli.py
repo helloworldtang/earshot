@@ -13,9 +13,10 @@ from pathlib import Path
 import numpy as np
 
 from earshot import __version__
+from earshot.auth import device_login, save_credentials, verify_key
 from earshot.capture import blackhole_missing_hint, list_capture_devices, pick_device, record_to_wav
 from earshot.compose import NoteMeta, add_punctuation, derive_title, group_paragraphs, outbox_path, render_markdown
-from earshot.config import Settings, load_settings
+from earshot.config import DEFAULT_EXOMIND_BASE_URL, Settings, load_settings
 from earshot.deliver import DeliveryResult, deliver_exomind, deliver_exomind_api, deliver_webhook
 from earshot.extract import ExtractError, ffmpeg_available, to_wav16k, wav_duration
 from earshot.live import LiveSession
@@ -76,6 +77,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--deliver", choices=["exomind", "webhook", "none"], default="exomind", help="投递方式(默认 exomind)"
     )
     p_deliver.add_argument("--webhook", help="webhook 地址(--deliver webhook 时必填)")
+
+    p_login = sub.add_parser("login", help="设备流登录 exomind(免装 emcli,写入 ~/.exomind/config.json)")
+    p_login.add_argument("--base-url", default=DEFAULT_EXOMIND_BASE_URL, help="exomind API 地址")
+    p_login.add_argument("--force", action="store_true", help="跳过「凭据仍有效」检查,无条件重新登录")
 
     sub.add_parser("devices", help="列出可用采集设备")
     sub.add_parser("doctor", help="环境自检")
@@ -188,8 +193,9 @@ def _do_deliver(
             except ValueError as e:
                 print(f"  配置文件解析失败: {e}")
         print(f"  PATH={os.environ.get('PATH', '')[:200]}")
-        print("  → exomind login 生成 ~/.exomind/config.json,或 npm i -g exomind,或改用 --deliver webhook/none")
-        print("  → 笔记已留档,环境修好后可用 earshot deliver <md路径> 补投")
+        print("  → 取凭据三选一:① earshot login(浏览器设备流授权) ② 设 EXOMIND_API_KEY 环境变量")
+        print("    (从 exomind-api.ai-as.cn/ui/account 复制) ③ npm i -g exomind && exomind login")
+        print("  → 或改用 --deliver webhook/none;笔记已留档,环境修好后可用 earshot deliver <md路径> 补投")
         return EXIT_FAIL
     mark = {"delivered": "✓", "pending": "⏳", "failed": "✗"}.get(result.status, "·")
     print(f"{mark} {result.status}: {result.detail}")
@@ -507,6 +513,26 @@ def cmd_clean(args: argparse.Namespace, settings: Settings) -> int:
     return EXIT_OK
 
 
+def cmd_login(args: argparse.Namespace, settings: Settings) -> int:
+    """设备流登录 exomind:已有凭据探活仍有效则直接返回(与 emcli/wxpub 同款智能登录)。"""
+    base_url = args.base_url
+    if not args.force and settings.exomind_api_key:
+        existing_base = settings.exomind_base_url or base_url
+        if verify_key(existing_base, settings.exomind_api_key):
+            print(f"✓ 凭据仍有效({existing_base}),未重新登录。强制重登用: earshot login --force")
+            return EXIT_OK
+    print(f"连接 exomind:{base_url}")
+    print("设备登录:")
+    api_key = device_login(base_url)
+    if not verify_key(base_url, api_key):
+        print("✗ 拿到的凭据探活失败,未写入配置;请重试 earshot login")
+        return EXIT_FAIL
+    path = save_credentials(base_url, api_key)
+    print(f"✓ 登录成功,凭据已写入 {path}")
+    print("  投递与云端转写(--engine server)现在可用")
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -516,6 +542,7 @@ def main(argv: list[str] | None = None) -> int:
         "audio": cmd_audio,
         "video": cmd_video,
         "deliver": cmd_deliver,
+        "login": cmd_login,
         "devices": cmd_devices,
         "doctor": cmd_doctor,
         "clean": cmd_clean,
