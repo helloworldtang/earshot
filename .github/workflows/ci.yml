@@ -13,6 +13,8 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+      - name: Install system audio deps
+        run: sudo apt-get update && sudo apt-get install -y libpulse-dev
       - name: Install
         run: uv sync
       - name: Lint
