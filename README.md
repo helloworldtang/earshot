@@ -32,11 +32,11 @@ uv --version
 ```
 
 <details>
-<summary><b>国内网络看这里</b>(直连 GitHub/PyPI 慢或超时)</summary>
+<summary><b>国内网络看这里</b>(直连 GitHub/PyPI 慢或超时;两条路线均已在 macOS 实测通过,Windows 命令来自镜像官方文档)</summary>
 
-uv 官方安装脚本与 Python 下载默认走 GitHub、包索引走 PyPI 官方,大陆网络可能超时。两条路任选:
+**路线 A(推荐——什么都不用预装,一条命令搞定)**
 
-**路线 A(推荐,一条命令全搞定)**:[uv.agentsmirror.com](https://github.com/Wangnov/uv-custom) 公益镜像——分发的是官方原版安装脚本,只把下载源切到国内,并自动写入 Python 下载镜像与 PyPI 镜像配置:
+A1. 用国内镜像安装 uv([uv.agentsmirror.com](https://github.com/Wangnov/uv-custom) 公益镜像,分发的是官方原版安装脚本,只把下载源切到国内):
 
 ```bash
 # macOS / Linux
@@ -45,21 +45,47 @@ curl -LsSf https://uv.agentsmirror.com/install-cn.sh | sh
 powershell -ExecutionPolicy ByPass -c "irm https://uv.agentsmirror.com/install-cn.ps1 | iex"
 ```
 
-装完直接跳到第 2 步,后续 `uv tool install` 的包下载也已走国内源。
+A2. **重开一个终端**(关键:镜像的 PyPI 源配置写在 shell 配置里,不重开终端不生效),验证 uv:
 
-**路线 B(已装 Python 的用户)**:用 pip 从清华源装 uv:
+```bash
+uv --version        # 输出版本号(如 uv 0.13.7)即成功
+```
+
+A3. 安装 earshot(Python 与全部依赖自动下载,均走国内源):
+
+```bash
+uv tool install earshot-cli
+```
+
+A4. 验证命令可用:
+
+```bash
+earshot me          # 看到「凭据:未配置(earshot login …)」即安装成功,接着看下方第 3 步登录
+```
+
+**路线 B(机器上已有 Python 和 pip)**
+
+B1. 用清华源装 uv:
 
 ```bash
 pip install uv -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-再给 uv 配国内 PyPI 源(一劳永逸,写入 `~/.config/uv/uv.toml`):
+B2. 写入国内源配置(包索引走清华、Python 下载走 agentsmirror,一劳永逸):
 
 ```bash
-printf '[[index]]\nurl = "https://pypi.tuna.tsinghua.edu.cn/simple"\ndefault = true\n' > ~/.config/uv/uv.toml
+mkdir -p ~/.config/uv
+printf '[[index]]\nurl = "https://pypi.tuna.tsinghua.edu.cn/simple"\ndefault = true\n\npython-install-mirror = "https://uv.agentsmirror.com/python-build-standalone/releases/download"\n' > ~/.config/uv/uv.toml
 ```
 
-> 路线 B 未覆盖「uv 自动下载 Python」这一步(仍走 GitHub):若第 2 步卡在下载 Python 且本机 Python 版本低于 3.12,改走路线 A(它会一并配好 Python 下载镜像)。
+(Windows 路径为 `%APPDATA%\uv\uv.toml`,内容相同)
+
+B3. 安装并验证:
+
+```bash
+uv tool install earshot-cli
+earshot me
+```
 
 </details>
 
