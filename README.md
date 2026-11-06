@@ -11,10 +11,44 @@
 
 ## 安装(开箱即用)
 
+唯一的依赖是 [uv](https://docs.astral.sh/uv/)(Python 的包管理器)。**不需要预装 Python**——uv 会自动下载并管理所需版本(earshot 需要 Python ≥3.12,uv 全程代劳)。
+
+按顺序三步:
+
+**第 1 步:安装 uv**(已装可跳过,`uv --version` 可验证)
+
 ```bash
-uv tool install earshot-cli   # 或 pipx install earshot-cli
-earshot doctor                # 环境自检;earshot 与 earshot-cli 两个命令名等价可用
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows(PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
+
+装完**重开一个终端**(或按安装器提示把 uv 加进 PATH),再验证:
+
+```bash
+uv --version
+```
+
+**第 2 步:安装 earshot**(uv 自动下载 Python ≥3.12 与全部依赖,含内置 ffmpeg)
+
+```bash
+uv tool install earshot-cli
+```
+
+> 若提示 `command not found: earshot`:uv 把命令装到了 `~/.local/bin`(Windows 为 `%USERPROFILE%\.local\bin`),按提示把它加入 PATH 或重开终端。
+
+**第 3 步:登录并自检**
+
+```bash
+earshot login    # 浏览器打开授权页,点「授权登录」即完成(已登录过 exomind 则免)
+earshot me       # 显示凭据状态与服务连通性(「凭据状态:有效」即就绪)
+```
+
+没有 ExoMind 账号?投递可换任意 webhook(`--deliver webhook --webhook <url>`),或 `--deliver none` 只本地存档,两者都不需要登录。
+
+`earshot` 与 `earshot-cli` 两个命令名等价可用;`earshot doctor` 可做完整环境自检。
 
 升级:
 
