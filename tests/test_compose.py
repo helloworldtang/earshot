@@ -54,7 +54,7 @@ def test_derive_title_no_content() -> None:
 
 def test_add_punctuation_by_timing() -> None:
     segs = [
-        _seg(0.0, 2.0, "想理解递归"),      # 与下一段间隔 0.2s → 逗号
+        _seg(0.0, 2.0, "想理解递归"),  # 与下一段间隔 0.2s → 逗号
         _seg(2.2, 4.0, "你得先理解递归"),  # 与下一段间隔 1.5s → 句号
         _seg(5.5, 7.0, "这句话像个玩笑"),  # 末段 → 句号
     ]

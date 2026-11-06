@@ -135,7 +135,13 @@ def test_deliver_api_passes_source_url(tmp_path: Path) -> None:
         return {"status": "done", "entities": 1}
 
     result = deliver_exomind_api(
-        md, "t", [], _settings(), poster=poster, getter=getter, poll_interval_s=0,
+        md,
+        "t",
+        [],
+        _settings(),
+        poster=poster,
+        getter=getter,
+        poll_interval_s=0,
         source_url="https://www.bilibili.com/video/BV16qpF64E6V/",
     )
     assert result.status == "delivered"
