@@ -27,7 +27,7 @@ uv tool upgrade earshot-cli
 源码安装请**锁版本 tag**,不要引滚动的 `main`(消费方 `uv sync`/`pip install` 会隐性升级到未审阅代码;升级应当是显式改版本号的决策):
 
 ```bash
-uv tool install "earshot-cli @ https://github.com/helloworldtang/earshot/archive/refs/tags/v0.1.1.tar.gz"
+uv tool install "earshot-cli @ https://github.com/helloworldtang/earshot/archive/refs/tags/v0.2.0.tar.gz"
 ```
 
 - **零系统依赖**:ffmpeg 已随 Python wheel 内置([imageio-ffmpeg](https://pypi.org/project/imageio-ffmpeg),MoviePy 同款),无需 brew/apt。

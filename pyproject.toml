@@ -1,6 +1,6 @@
 [project]
 name = "earshot-cli"
-version = "0.1.1"
+version = "0.2.0"
 description = "旁听剪藏:跨平台桌面端系统声录制 → 本地转写 → 投递知识库(默认 ExoMind,可插拔)"
 readme = "README.md"
 license = "MIT"
