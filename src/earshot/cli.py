@@ -525,7 +525,9 @@ def cmd_me(_args: argparse.Namespace, settings: Settings) -> int:
     masked = f"{key[:8]}…{key[-4:]}" if len(key) > 12 else key
     print(f"凭据:{masked}")
     if verify_key(settings.exomind_base_url, key):
-        print("凭据状态:有效")
+        # 设备流签发的是长期 API Key(无 expires_at),与 wxpub 委托票的 15 分钟 TTL 不同——
+        # 一致性口径对齐 wxpub me 的 sk_ 分支:「长期有效」;失效才需要重登
+        print("凭据状态:有效(长期 API Key,无到期时间)")
         return EXIT_OK
     print("凭据状态:无效或服务不可达(重登用: earshot login --force)")
     return EXIT_FAIL

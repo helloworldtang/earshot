@@ -30,7 +30,7 @@ def test_me_valid_key(
     assert code == 0
     assert "https://exomind.example" in out
     assert "sk_live_…_key" in out, "凭据掩码展示"
-    assert "凭据状态:有效" in out
+    assert "凭据状态:有效(长期 API Key,无到期时间)" in out, "长期 key 无 TTL,口径对齐 wxpub sk_ 分支"
 
 
 def test_me_invalid_key(
