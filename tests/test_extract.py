@@ -14,10 +14,11 @@ pytestmark = pytest.mark.skipif(not ffmpeg_available(), reason="本机无 ffmpeg
 def _make_sine(path: Path, seconds: float = 1.0, rate: int = 44100, channels: int = 2) -> None:
     # 用 ffmpeg_exe() 而非裸 "ffmpeg":CI 无系统 ffmpeg 时 fallback 到 imageio-ffmpeg
     # wheel 内置二进制(ffmpeg_available()=True 使 skipif 不触发,裸调反而找不到)
-    assert ffmpeg_exe() is not None
+    exe = ffmpeg_exe()
+    assert exe is not None
     subprocess.run(
         [
-            ffmpeg_exe(),
+            exe,
             "-hide_banner",
             "-loglevel",
             "error",
@@ -49,9 +50,11 @@ def test_to_wav16k_downmixes_and_resamples(tmp_path: Path) -> None:
 
 def test_to_wav16k_accepts_video_container(tmp_path: Path) -> None:
     src = tmp_path / "in.mp4"
+    exe = ffmpeg_exe()
+    assert exe is not None
     subprocess.run(
         [
-            ffmpeg_exe(),
+            exe,
             "-hide_banner",
             "-loglevel",
             "error",
