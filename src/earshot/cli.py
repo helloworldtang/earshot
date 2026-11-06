@@ -78,6 +78,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_deliver.add_argument("--webhook", help="webhook 地址(--deliver webhook 时必填)")
 
+    sub.add_parser("me", help="显示凭据状态与服务连通性")
+
     p_login = sub.add_parser("login", help="设备流登录 exomind(免装 emcli,写入 ~/.exomind/config.json)")
     p_login.add_argument("--base-url", default=DEFAULT_EXOMIND_BASE_URL, help="exomind API 地址")
     p_login.add_argument("--force", action="store_true", help="跳过「凭据仍有效」检查,无条件重新登录")
@@ -513,6 +515,22 @@ def cmd_clean(args: argparse.Namespace, settings: Settings) -> int:
     return EXIT_OK
 
 
+def cmd_me(_args: argparse.Namespace, settings: Settings) -> int:
+    """显示凭据状态与服务连通性(与 wxpub/emcli me 对齐)。"""
+    print(f"服务地址:{settings.exomind_base_url}")
+    if not settings.exomind_api_key:
+        print("凭据:未配置(earshot login,或设 EXOMIND_API_KEY 环境变量)")
+        return EXIT_FAIL
+    key = settings.exomind_api_key
+    masked = f"{key[:8]}…{key[-4:]}" if len(key) > 12 else key
+    print(f"凭据:{masked}")
+    if verify_key(settings.exomind_base_url, key):
+        print("凭据状态:有效")
+        return EXIT_OK
+    print("凭据状态:无效或服务不可达(重登用: earshot login --force)")
+    return EXIT_FAIL
+
+
 def cmd_login(args: argparse.Namespace, settings: Settings) -> int:
     """设备流登录 exomind:已有凭据探活仍有效则直接返回(与 emcli/wxpub 同款智能登录)。"""
     base_url = args.base_url
@@ -543,6 +561,7 @@ def main(argv: list[str] | None = None) -> int:
         "video": cmd_video,
         "deliver": cmd_deliver,
         "login": cmd_login,
+        "me": cmd_me,
         "devices": cmd_devices,
         "doctor": cmd_doctor,
         "clean": cmd_clean,
