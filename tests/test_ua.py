@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 
 from earshot import __version__, ua_headers
 from earshot.config import Settings
@@ -49,11 +50,11 @@ def test_deliver_api_carries_ua_on_wire(tmp_path: Path) -> None:
     assert seen["Authorization"].startswith("Bearer ")
 
 
-def test_webhook_does_not_claim_earshot_ua(monkeypatch) -> None:
+def test_webhook_does_not_claim_earshot_ua(monkeypatch: pytest.MonkeyPatch) -> None:
     """第三方 webhook 不打 earshot UA——收编范围=自有服务,乱标反而污染对方统计。"""
-    sent: list[httpx.request] = []
+    sent: list[Any] = []
 
-    def fake_post(url: str, **kw: Any):  # noqa: ANN003
+    def fake_post(url: str, **kw: Any) -> httpx.Response:
         sent.append(kw.get("headers"))  # None = 未传头
         return httpx.Response(200)
 
