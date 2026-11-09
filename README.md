@@ -104,6 +104,14 @@ earshot login    # 浏览器打开授权页,点「授权登录」即完成(已�
 earshot me       # 显示凭据状态与服务连通性(「凭据状态:有效」即就绪)
 ```
 
+凭据生命周期闭环(login → me → update → logout):
+
+```bash
+earshot update --api-key <新key>  # 替换 API Key(新 key 从 exomind 管理端复制;缺省交互粘贴)
+earshot logout                   # 清除本地凭据(保留服务器地址;exomind-cli/fireCut 共用该配置会一并失效)
+earshot help [命令]               # 查看帮助(如 earshot help listen)
+```
+
 没有 ExoMind 账号?投递可换任意 webhook(`--deliver webhook --webhook <url>`),或 `--deliver none` 只本地存档,两者都不需要登录。
 
 `earshot` 与 `earshot-cli` 两个命令名等价可用;`earshot doctor` 可做完整环境自检。

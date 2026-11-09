@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 
 from earshot import __version__
-from earshot.auth import device_login, save_credentials, verify_key
+from earshot.auth import clear_credentials, device_login, save_credentials, verify_key
 from earshot.capture import blackhole_missing_hint, list_capture_devices, pick_device, record_to_wav
 from earshot.compose import NoteMeta, add_punctuation, derive_title, group_paragraphs, outbox_path, render_markdown
 from earshot.config import DEFAULT_EXOMIND_BASE_URL, Settings, load_settings
@@ -83,6 +83,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_login = sub.add_parser("login", help="设备流登录 exomind(免装 emcli,写入 ~/.exomind/config.json)")
     p_login.add_argument("--base-url", default=DEFAULT_EXOMIND_BASE_URL, help="exomind API 地址")
     p_login.add_argument("--force", action="store_true", help="跳过「凭据仍有效」检查,无条件重新登录")
+
+    p_update = sub.add_parser("update", help="替换 API Key(新 key 从 exomind 管理端复制;获取凭据用 login)")
+    p_update.add_argument("--api-key", default=None, help="新 API Key(不填则交互粘贴)")
+
+    sub.add_parser("logout", help="清除本地凭据(保留服务器地址;exomind-cli/fireCut 共用该配置,会一并失效)")
+
+    p_help = sub.add_parser("help", help="显示帮助:earshot help [命令]")
+    p_help.add_argument("topic", nargs="?", default=None, help="要查看帮助的命令名")
 
     sub.add_parser("devices", help="列出可用采集设备")
     sub.add_parser("doctor", help="环境自检")
@@ -553,6 +561,42 @@ def cmd_login(args: argparse.Namespace, settings: Settings) -> int:
     return EXIT_OK
 
 
+def cmd_update(args: argparse.Namespace, settings: Settings) -> int:
+    """替换 API Key:已拿到新 key(exomind 管理端复制)时本地换上。
+
+    只管替换,不管新 key 怎么来——获取凭据走 login 的设备流。探活不通过不写入
+    (与 cmd_login 同款纪律,避免无效 key 覆盖现有有效配置)。
+    """
+    key = args.api_key
+    if not key:
+        key = _prompt("新 API Key(回车取消)")
+    if not key:
+        print("未提供凭据,未改动。")
+        return EXIT_OK
+    base_url = settings.exomind_base_url or DEFAULT_EXOMIND_BASE_URL
+    if not verify_key(base_url, key):
+        print(f"✗ 凭据探活失败({base_url}),未写入;确认 key 有效后重试")
+        return EXIT_FAIL
+    path = save_credentials(base_url, key)
+    masked = f"{key[:8]}…{key[-4:]}" if len(key) > 12 else key
+    print(f"✓ 凭据已替换:{masked}")
+    print(f"  已写入 {path}")
+    return EXIT_OK
+
+
+def cmd_logout(_args: argparse.Namespace, _settings: Settings) -> int:
+    """清除本地凭据(保留 base_url);~/.exomind/config.json 三家共用,登出影响一并说清。"""
+    path = clear_credentials()
+    if path is None:
+        print("未登录(本地无凭据),无需登出。")
+        return EXIT_OK
+    print(f"✓ 已登出,本地凭据已清除({path})")
+    print("  服务器地址保留;重新登录: earshot login")
+    print("  注意: ~/.exomind/config.json 由 earshot/exomind-cli/fireCut 共享,它们的调用也会失效")
+    print("  服务端吊销该 key 请到 exomind 管理端(account 页)操作")
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -563,11 +607,22 @@ def main(argv: list[str] | None = None) -> int:
         "video": cmd_video,
         "deliver": cmd_deliver,
         "login": cmd_login,
+        "update": cmd_update,
+        "logout": cmd_logout,
         "me": cmd_me,
         "devices": cmd_devices,
         "doctor": cmd_doctor,
         "clean": cmd_clean,
     }
+    if args.command == "help":
+        if args.topic:
+            # 复用 argparse 自己的 -h 渲染:earshot help listen ≡ earshot listen --help
+            try:
+                parser.parse_args([args.topic, "--help"])
+            except SystemExit as exc:
+                return int(exc.code or 0)
+        parser.print_help()
+        return EXIT_OK
     if args.command is None:
         if not _interactive():
             parser.print_help()

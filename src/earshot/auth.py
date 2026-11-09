@@ -148,3 +148,26 @@ def save_credentials(
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     path.chmod(0o600)
     return path
+
+
+def clear_credentials(config_path: Path | None = None) -> Path | None:
+    """清除配置里的 api_key(置空,保留 base_url 等其他字段)——登出只清本地。
+
+    Args:
+        config_path: 配置文件路径,测试注入;缺省 ``~/.exomind/config.json``。
+
+    Returns:
+        实际写入的配置文件路径;文件不存在或本就没有凭据时返回 None(无事可做)。
+    """
+    path = config_path if config_path is not None else Path.home() / EXOMIND_CONFIG_FILENAME
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(raw, dict) or not raw.get("api_key"):
+        return None
+    data = {k: v for k, v in raw.items() if isinstance(v, str)}
+    data["api_key"] = ""
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+    return path
