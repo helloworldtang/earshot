@@ -17,6 +17,7 @@ from typing import Any
 
 import httpx
 
+from earshot import ua_headers
 from earshot.config import EXOMIND_CONFIG_FILENAME
 
 Poster = Callable[[str, dict[str, Any]], dict[str, Any]]
@@ -26,13 +27,13 @@ Sleeper = Callable[[float], None]
 
 
 def _post_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
-    resp = httpx.post(url, json=payload, timeout=30.0)
+    resp = httpx.post(url, json=payload, headers=ua_headers(), timeout=30.0)
     resp.raise_for_status()
     return dict(resp.json())
 
 
 def _get_status(url: str, headers: dict[str, str]) -> int:
-    return int(httpx.get(url, headers=headers, timeout=30.0).status_code)
+    return int(httpx.get(url, headers=ua_headers(**headers), timeout=30.0).status_code)
 
 
 def _open_browser(url: str) -> bool:

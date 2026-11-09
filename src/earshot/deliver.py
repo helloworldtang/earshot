@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 
+from earshot import ua_headers
 from earshot.config import Settings
 
 EXOMIND_ORIGIN = "earshot"
@@ -178,7 +179,7 @@ def deliver_exomind_api(
     post = poster or _post
     get = getter or _get
     base = settings.exomind_base_url
-    headers = {"Authorization": f"Bearer {settings.exomind_api_key}"}
+    headers = ua_headers(Authorization=f"Bearer {settings.exomind_api_key}")
 
     content = md_path.read_text(encoding="utf-8")
     payload: dict[str, Any] = {"content": content, "origin": EXOMIND_ORIGIN, "client_key": client_key_for(content)}

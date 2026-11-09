@@ -7,6 +7,7 @@ from pathlib import Path
 
 import httpx
 
+from earshot import ua_headers
 from earshot.config import Settings
 
 POLL_INTERVAL_S = 3.0
@@ -36,7 +37,7 @@ def transcribe_cloud(wav: Path, settings: Settings, timeout_s: float = DEFAULT_T
         msg = "未配置 exomind 凭据(先 `exomind login` 生成 ~/.exomind/config.json,或设 EXOMIND_API_KEY)"
         raise CloudTranscribeError(msg)
     base = settings.exomind_base_url
-    headers = {"Authorization": f"Bearer {settings.exomind_api_key}"}
+    headers = ua_headers(Authorization=f"Bearer {settings.exomind_api_key}")
 
     try:
         with wav.open("rb") as f:
