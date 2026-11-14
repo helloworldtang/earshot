@@ -14,7 +14,28 @@ PARAGRAPH_MAX_CHARS = 400  # 单段上限,超出在句号处拆(口播字幕无�
 SENTENCE_MAX_CHARS = 60  # 句长预算:连续无句号超过该字数,强制断句
 TITLE_MAX_CHARS = 40
 
-SOURCE_LABELS = {"listen": "旁听录音", "audio": "音频文件", "video": "视频字幕"}
+SOURCE_LABELS = {"listen": "旁听录音", "audio": "音频文件", "video": "视频字幕", "ocr": "硬字幕OCR"}
+
+# 粉丝互动话术(求三连/关注/下期再见):不是知识内容,入库只会污染实体抽取。
+# 严格模式控制误杀:须「命中模式 且 整段 ≤50 字」才丢(知识视频真讨论"点赞机制"时多为长句)。
+CTA_MAX_CHARS = 50
+CTA_PATTERNS = (
+    re.compile(r"三连|投币"),
+    re.compile(r"点赞.{0,8}(收藏|关注|转发|加购)"),
+    re.compile(r"(关注|订阅).{0,6}(我|频道|账号|公众号)"),
+    re.compile(r"下期(再?见|再见)|不见不散|不迷路"),
+    re.compile(r"(谢谢|感谢)观看"),
+)
+
+
+def drop_cta(segments: list[Segment]) -> list[Segment]:
+    """滤除粉丝互动话术段(纯函数,listen/audio/video/ocr 四路统一)。"""
+    return [s for s in segments if not _is_cta(s.text)]
+
+
+def _is_cta(text: str) -> bool:
+    t = text.strip()
+    return len(t) <= CTA_MAX_CHARS and any(p.search(t) for p in CTA_PATTERNS)
 
 
 @dataclass(frozen=True, slots=True)

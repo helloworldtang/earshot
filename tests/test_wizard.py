@@ -45,12 +45,28 @@ def test_audio_without_file_non_tty_errors(non_tty, capsys) -> None:  # type: ig
     assert "缺少文件路径" in capsys.readouterr().out
 
 
+def test_ocr_without_target_non_tty_errors(non_tty, capsys) -> None:  # type: ignore[no-untyped-def]
+    args = cli.build_parser().parse_args(["ocr"])
+    rc = cli.cmd_ocr(args, _settings())
+    assert rc == 1
+    assert "缺少视频路径或链接" in capsys.readouterr().out
+
+
+def test_ocr_local_file_missing_fails(capsys) -> None:  # type: ignore[no-untyped-def]
+    args = cli.build_parser().parse_args(["ocr", "/nonexistent/video.mp4"])
+    rc = cli.cmd_ocr(args, _settings())
+    assert rc == 1
+    assert "文件不存在" in capsys.readouterr().out
+
+
 def test_positionals_still_accept_args() -> None:
     parser = cli.build_parser()
     a = parser.parse_args(["video", "https://x"])
     assert a.url == "https://x" and a.cookies_from_browser is None
     b = parser.parse_args(["audio", "/tmp/a.mp4"])
     assert b.file == Path("/tmp/a.mp4")
+    c = parser.parse_args(["ocr", "https://x", "--fps", "0.5", "--region", "full"])
+    assert c.path_or_url == "https://x" and c.fps == 0.5 and c.region == "full" and c.min_score == 0.55
 
 
 def test_clipboard_text_returns_str_without_crash() -> None:

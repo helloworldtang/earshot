@@ -7,6 +7,7 @@ from earshot.compose import (
     NoteMeta,
     add_punctuation,
     derive_title,
+    drop_cta,
     format_duration,
     group_paragraphs,
     outbox_path,
@@ -151,3 +152,26 @@ def test_render_markdown_omits_empty_note() -> None:
 def test_outbox_path_pattern(tmp_path: Path) -> None:
     path = outbox_path(tmp_path, datetime(2026, 10, 30, 9, 5, 7), "知识飞轮入门")
     assert path == tmp_path / "20261030-090507-知识飞轮入门.md"
+
+
+def test_drop_cta_removes_fan_interaction_lines() -> None:
+    segments = [
+        Segment(0.0, 3.0, "如果喜欢我们的影片，请一键三连支持我们。"),
+        Segment(4.0, 8.0, "今天讲讲注意力机制的三个关键设计。"),
+        Segment(9.0, 12.0, "关注我，下期再见。"),
+        Segment(13.0, 16.0, "点赞、收藏、转发一条龙。"),
+    ]
+    kept = drop_cta(segments)
+    assert [s.text for s in kept] == ["今天讲讲注意力机制的三个关键设计。"]
+
+
+def test_drop_cta_keeps_long_content_mentioning_keywords() -> None:
+    # 严格模式:真讨论"点赞机制"的长句(>50字)不丢,只有短促话术才丢
+    long_text = "短视频平台的点赞机制本质是一套正反馈系统，" + "冷启动期的数据表现会被算法持续放大，" * 5
+    segments = [Segment(0.0, 30.0, long_text)]
+    assert drop_cta(segments) == segments
+
+
+def test_drop_cta_empty_when_all_cta() -> None:
+    segments = [Segment(0.0, 2.0, "谢谢观看"), Segment(3.0, 5.0, "一键三连")]
+    assert drop_cta(segments) == []

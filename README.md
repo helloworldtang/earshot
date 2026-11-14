@@ -131,6 +131,9 @@ uv tool install "earshot-cli @ https://github.com/helloworldtang/earshot/archive
 ```
 
 - **零系统依赖**:ffmpeg 已随 Python wheel 内置([imageio-ffmpeg](https://pypi.org/project/imageio-ffmpeg),MoviePy 同款),无需 brew/apt。
+- **硬字幕 OCR 为可选依赖**(`earshot ocr`,字幕烧在画面里、无音轨的视频用):装主包后补一条
+  `uv tool install --force --with "earshot-cli[ocr]" earshot-cli`(或首装就用 `uv tool install "earshot-cli[ocr]"`),
+  约多下载 100MB(含 PP-OCR ONNX 模型,复用主依赖 onnxruntime 运行时,不引入 paddlepaddle)。
 - **模型首次运行自动下载**:SenseVoice int8 + silero VAD(~230MB,默认走 hf-mirror,`HF_ENDPOINT` 可覆盖),装完不再下。
 - **投递免装 CLI**:默认直连 ExoMind HTTP API(复用 `~/.exomind/config.json` 凭据);没有凭据但有 exomind CLI 时自动回退;也支持任意 webhook。
 - **独立登录免装 emcli**:`earshot login` 设备流浏览器授权,直接写入 `~/.exomind/config.json`(与 emcli 共用同一凭据文件);已装 emcli 且登录过则无需再登。
@@ -164,6 +167,11 @@ earshot listen --note "B站·xxx第3期"
 
 # B站等视频链接直拉字幕(高信噪比:无环境噪音/打断;AI 字幕需登录态)
 earshot video "https://www.bilibili.com/video/BVxxxx" --cookies-from-browser chrome
+
+# 硬字幕视频 OCR 提取(字幕烧在画面里、无音轨;本地文件或链接均可,链接模式下载完即删不留全片)
+earshot ocr ./录屏.mp4
+earshot ocr "https://www.bilibili.com/video/BVxxxx"
+# 长视频可降采样:--fps 0.5(<1 会漏短字幕);字幕不在底部条带时:--region full
 
 # 已有音视频文件(录屏 mp4 / 语音 m4a / 播客 mp3)
 earshot audio recording.mp4 --title "通勤听书笔记" --deliver none

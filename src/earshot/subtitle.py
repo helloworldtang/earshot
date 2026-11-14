@@ -182,7 +182,10 @@ def fetch_video_note(url: str, cookies_browser: str | None = None) -> tuple[Vide
         hints = []
         if not cookies_browser:
             hints.append("试试 --cookies-from-browser chrome(AI 字幕通常需要登录态)")
-        hints.append("若字幕是烧在画面里的硬字幕(播放器右下角无 CC 开关),字幕轨本来就不存在,请改用 earshot listen 听录")
+        hints.append(
+            "若字幕是烧在画面里的硬字幕(播放器右下角无 CC 开关),字幕轨本来就不存在,"
+            "请改用 earshot ocr <视频链接>(画面OCR提取)"
+        )
         msg = f"无可用中文字幕。{' ; '.join(hints)}"
         raise SubtitleError(msg)
     if track.data:  # yt-dlp 已下载并转好格式(B站 ai-zh 即此路径)

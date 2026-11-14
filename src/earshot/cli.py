@@ -1,4 +1,4 @@
-"""earshot CLI:listen / audio / devices / doctor。"""
+"""earshot CLI:listen / audio / video / ocr / devices / doctor。"""
 
 from __future__ import annotations
 
@@ -15,10 +15,19 @@ import numpy as np
 from earshot import __version__
 from earshot.auth import clear_credentials, device_login, save_credentials, verify_key
 from earshot.capture import blackhole_missing_hint, list_capture_devices, pick_device, record_to_wav
-from earshot.compose import NoteMeta, add_punctuation, derive_title, group_paragraphs, outbox_path, render_markdown
+from earshot.compose import (
+    NoteMeta,
+    add_punctuation,
+    derive_title,
+    drop_cta,
+    group_paragraphs,
+    outbox_path,
+    render_markdown,
+)
 from earshot.config import DEFAULT_EXOMIND_BASE_URL, Settings, load_settings
 from earshot.deliver import DeliveryResult, deliver_exomind, deliver_exomind_api, deliver_webhook
 from earshot.extract import ExtractError, ffmpeg_available, to_wav16k, wav_duration
+from earshot.hardsub import FrameOcr, HardsubError, download_video, extract_hardsub, is_url, make_rapidocr_engine
 from earshot.live import LiveSession
 from earshot.models import ensure_models
 from earshot.subtitle import SubtitleError, fetch_video_note
@@ -68,6 +77,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--cookies-from-browser",
         help="浏览器名(chrome/safari/firefox/edge),拉 AI 字幕(ai-zh)通常需要登录态",
     )
+
+    p_ocr = sub.add_parser("ocr", help="硬字幕视频 OCR 提取(字幕烧在画面里、无音轨的场景)")
+    _add_common(p_ocr)
+    p_ocr.add_argument("path_or_url", nargs="?", help="视频文件路径或链接(B站等;缺省时交互询问)")
+    p_ocr.add_argument("--fps", type=float, default=1.0, help="抽帧采样率(默认 1;长视频可 0.5,<1 会漏短字幕)")
+    p_ocr.add_argument(
+        "--region", choices=["bottom", "full"], default="bottom", help="识别区域(默认 bottom 底部字幕条带)"
+    )
+    p_ocr.add_argument("--min-score", type=float, default=0.55, help="行级置信度阈值,低于则丢弃(默认 0.55)")
+    p_ocr.add_argument("--cookies-from-browser", help="浏览器名(chrome/safari/firefox/edge),下载需要登录态的视频时用")
 
     p_deliver = sub.add_parser("deliver", help="补投/重投 outbox 里的笔记")
     p_deliver.add_argument("file", type=Path, help="笔记 md 路径")
@@ -125,6 +144,10 @@ def _run_pipeline(
     chapter_breaks: list[float] | None = None,
 ) -> int:
     """组装 md → 落 outbox → 投递,返回退出码。"""
+    kept = drop_cta(segments)  # 滤粉丝互动话术(求三连/关注),四路统一
+    if dropped := len(segments) - len(kept):
+        print(f"已滤除 {dropped} 句粉丝互动话术(三连/关注类)")
+    segments = kept
     if not any(s.text.strip() for s in segments):
         print("未识别到语音内容(检查系统输出/设备,或音频本身无人声)")
         return EXIT_NO_CONTENT
@@ -436,6 +459,90 @@ def cmd_video(args: argparse.Namespace, settings: Settings) -> int:
     return _run_pipeline(segments, note_meta, args, settings, chapter_breaks=meta.chapter_starts)
 
 
+def cmd_ocr(args: argparse.Namespace, settings: Settings) -> int:
+    target = args.path_or_url
+    if not target:
+        if not _interactive():
+            print("✗ 缺少视频路径或链接:earshot ocr <file|url>(或交互模式直接 earshot)")
+            return EXIT_FAIL
+        clip = _clipboard_text()
+        if clip.lower().startswith("http"):
+            target = _prompt("视频路径或链接", default=_short_url(clip), prefill=True)
+        else:
+            target = _prompt("视频路径或链接(本地文件 / B站链接)")
+        if not target:
+            print("✗ 未提供视频路径或链接")
+            return EXIT_FAIL
+    url_mode = is_url(target)
+    title, uploader, source_url = "", "-", ""
+    if not url_mode:  # 本地文件先校验存在性(免费检查,先于引擎构建与报「引擎未安装」)
+        video_path = Path(target).expanduser()
+        if not video_path.is_file():
+            print(f"✗ 文件不存在: {video_path}")
+            return EXIT_FAIL
+        title = video_path.stem
+    try:
+        engine = make_rapidocr_engine()  # 引擎先建:未装 [ocr] extra 时尽早失败,别等下载完
+    except HardsubError as e:
+        print(f"✗ {e}")
+        return EXIT_FAIL
+
+    tmp_dir = settings.home / "tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    if url_mode:
+        try:
+            dl = download_video(target, tmp_dir, cookies_browser=args.cookies_from_browser)
+        except HardsubError as e:
+            print(f"✗ {e}")
+            return EXIT_FAIL
+        video_path = dl.path
+        title, uploader, source_url = dl.title, dl.uploader, target
+        print(f"→ 已下载:{title}(UP:{uploader})")
+    print(f"→ 硬字幕 OCR 中({args.fps}fps,区域 {args.region})…")
+
+    def _progress(done: int, total: int) -> None:
+        print(f"\r→ OCR 中… {done}/{total} 帧({done / total * 100:3.0f}%)", end="", flush=True)
+
+    last_text = ""
+
+    def _show(frame: FrameOcr) -> None:
+        # 实时字幕上屏(listen 同款):新字幕行出现即回显,不用等整片跑完才知道内容对不对
+        nonlocal last_text
+        if not frame.text or frame.text == last_text:
+            return
+        last_text = frame.text
+        print(f"\r\033[K  ↪ {frame.text}", flush=True)  # 清掉进度行再上屏,进度随后 \r 重绘
+
+    try:
+        duration_s, segments = extract_hardsub(
+            video_path,
+            tmp_dir,
+            fps=args.fps,
+            region=args.region,
+            min_score=args.min_score,
+            engine=engine,
+            on_progress=_progress,
+            on_frame=_show,
+        )
+        print()
+        if not args.title:
+            args.title = title
+        if not args.note:
+            args.note = source_url or f"本地文件 {video_path.name}"
+        note_meta = NoteMeta(
+            started_at=datetime.now(),
+            duration_s=duration_s,
+            device=uploader,
+            source="ocr",
+            note=args.note,
+            source_url=source_url,
+        )
+        return _run_pipeline(segments, note_meta, args, settings)
+    finally:
+        if url_mode:
+            video_path.unlink(missing_ok=True)  # URL 模式不留全片(磁盘紧张;确认/放弃已在上方完成)
+
+
 def cmd_deliver(args: argparse.Namespace, settings: Settings) -> int:
     md_path = args.file
     if not md_path.is_file():
@@ -477,6 +584,13 @@ def cmd_doctor(_args: argparse.Namespace, settings: Settings) -> int:
         print(f"{'✓' if fine else '✗'} {label}" + ("" if fine else f"  → {fix}"))
 
     check("ffmpeg(系统或内置)", ffmpeg_available(), "重装 earshot 依赖(imageio-ffmpeg 应自带)")
+    try:
+        import rapidocr  # noqa: F401,PLC0415 轻量探测:不实例化,doctor 不加载模型
+
+        print("✓ OCR 引擎(RapidOCR,硬字幕提取)")
+    except ImportError:
+        # 可选能力,缺失不算失败:降级为提示
+        print('○ OCR 引擎:未安装,硬字幕提取(earshot ocr)需 uv tool install "earshot-cli[ocr]"')
     try:
         devices = list_capture_devices()
         loopbacks = [n for n, lb in devices if lb]
@@ -605,6 +719,7 @@ def main(argv: list[str] | None = None) -> int:
         "listen": cmd_listen,
         "audio": cmd_audio,
         "video": cmd_video,
+        "ocr": cmd_ocr,
         "deliver": cmd_deliver,
         "login": cmd_login,
         "update": cmd_update,
@@ -627,10 +742,10 @@ def main(argv: list[str] | None = None) -> int:
         if not _interactive():
             parser.print_help()
             return EXIT_FAIL
-        choice = _prompt("earshot 模式 [1]听录 [2]视频字幕 [3]本地文件(回车=1;输入 q 退出)", default="1")
+        choice = _prompt("earshot 模式 [1]听录 [2]视频字幕 [3]本地文件 [4]硬字幕OCR(回车=1;输入 q 退出)", default="1")
         if choice == "q":
             return EXIT_OK
-        mapping = {"1": "listen", "2": "video", "3": "audio"}
+        mapping = {"1": "listen", "2": "video", "3": "audio", "4": "ocr"}
         sub = mapping.get(choice)
         if sub is None:
             print(f"✗ 无效选择: {choice}")
