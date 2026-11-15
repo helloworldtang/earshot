@@ -88,6 +88,27 @@ def deliver_exomind(
     return DeliveryResult("failed", detail)
 
 
+def _raise_with_server_detail(resp: httpx.Response) -> None:
+    """is_error 响应抛 RuntimeError 并带上服务端 detail(失败信息与失败事实同源)。
+
+    裸状态码(如「422」)用户无从下手;拒收原因(内容太长/标题超限等)只在
+    响应体里。JSON 取 detail 字段,解析不了退回响应体前 200 字符。
+
+    Args:
+        resp: 已完成的 httpx 响应。
+
+    Raises:
+        RuntimeError: 携带 ``HTTP {status_code}: {detail}`` 格式的错误。
+    """
+    try:
+        body: Any = resp.json()
+        detail = body.get("detail") if isinstance(body, dict) else body
+        msg = str(detail) if detail else resp.text[:200]
+    except ValueError:
+        msg = resp.text[:200]
+    raise RuntimeError(f"HTTP {resp.status_code}: {msg}") from None
+
+
 def deliver_webhook(
     url: str,
     title: str,
@@ -112,7 +133,8 @@ def deliver_webhook(
 
     def _post(target: str, payload: dict[str, str | list[str]]) -> None:
         resp = httpx.post(target, json=payload, timeout=30.0)
-        resp.raise_for_status()
+        if resp.is_error:
+            _raise_with_server_detail(resp)
 
     send = poster or _post
     payload: dict[str, str | list[str]] = {"origin": origin, "title": title, "content": content_md, "tags": tags}
@@ -211,15 +233,7 @@ def deliver_exomind_api(
     def _post(url: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
         resp = httpx.post(url, json=payload, headers=headers, timeout=60.0)
         if resp.is_error:
-            # 4xx/5xx 必须带服务端 detail:裸状态码(如「422」)用户无从下手,
-            # 服务端拒收原因(内容太长/标题超限)只在响应体里。
-            try:
-                body: Any = resp.json()
-                detail = body.get("detail") if isinstance(body, dict) else body
-                msg = str(detail) if detail else resp.text[:200]
-            except ValueError:
-                msg = resp.text[:200]
-            raise RuntimeError(f"HTTP {resp.status_code}: {msg}") from None
+            _raise_with_server_detail(resp)
         return dict(resp.json())
 
     def _get(url: str, params: dict[str, str], headers: dict[str, str]) -> dict[str, Any]:

@@ -1,6 +1,7 @@
 """deliver 模块单测:exomind 命令 wire 契约 + 退出码分类 + webhook。"""
 
 from pathlib import Path
+from typing import Any
 
 from earshot.deliver import build_exomind_args, deliver_exomind, deliver_webhook
 
@@ -95,3 +96,23 @@ def test_deliver_webhook_failure() -> None:
     result = deliver_webhook("https://example.com/hook", "t", "c", [], poster=poster)
     assert result.status == "failed"
     assert "connection refused" in result.detail
+
+
+def test_deliver_webhook_error_surfaces_server_detail(monkeypatch: Any) -> None:
+    """质量点:webhook 4xx/5xx 响应体里的 detail 必须进失败信息,不裸奔状态码。"""
+
+    class _FakeResp:
+        is_error = True
+        status_code = 400
+        text = '{"detail":"invalid signature"}'
+
+        def json(self) -> dict[str, str]:
+            return {"detail": "invalid signature"}
+
+    import earshot.deliver as deliver_mod
+
+    monkeypatch.setattr(deliver_mod.httpx, "post", lambda *a, **k: _FakeResp(), raising=True)
+    result = deliver_webhook("https://example.com/hook", "t", "c", [])
+    assert result.status == "failed"
+    assert "HTTP 400" in result.detail
+    assert "invalid signature" in result.detail
