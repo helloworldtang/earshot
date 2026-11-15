@@ -20,6 +20,9 @@ EXOMIND_PENDING_EXIT_CODE = 3  # exomind CLI 契约:3 = 已提交、后台仍在
 DELIVER_TIMEOUT_S = 600.0
 INGEST_POLL_INTERVAL_S = 2.0
 INGEST_POLL_BUDGET_S = 120.0
+# 服务端 IngestRequest 上限 MAX_INGEST_CONTENT=30000 字符,超限 422「请拆成几次存入」;
+# 客户端留 2K 余量按段落边界预分片,避免整篇转写被一次性拒收(2026-11-15,45K 录播课转写实证)。
+INGEST_MAX_CONTENT_CHARS = 28000
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +137,42 @@ def _as_count(value: Any) -> int:
     return 0
 
 
+def split_for_ingest(content: str, limit: int = INGEST_MAX_CONTENT_CHARS) -> list[str]:
+    """按段落边界贪心分片,单段超限时再按字符硬切。
+
+    服务端对 content 有 30000 字符硬上限(超限 422 拒收并提示拆分),
+    长转写(1h 录播课 ~45K 字符)必须客户端预分片。
+
+    Args:
+        content: 完整正文。
+        limit: 单片字符上限。
+
+    Returns:
+        分片列表;不超过 limit 时原样单元素返回。各片拼接内容与原文一致
+        (硬切场景仅多出切点处的字符分裂,不丢字)。
+    """
+    if len(content) <= limit:
+        return [content]
+    chunks: list[str] = []
+    buf = ""
+    for para in content.split("\n\n"):
+        while len(para) > limit:
+            if buf:
+                chunks.append(buf)
+                buf = ""
+            chunks.append(para[:limit])
+            para = para[limit:]
+        cand = f"{buf}\n\n{para}" if buf else para
+        if len(cand) > limit:
+            chunks.append(buf)
+            buf = para
+        else:
+            buf = cand
+    if buf:
+        chunks.append(buf)
+    return chunks
+
+
 def deliver_exomind_api(
     md_path: Path,
     title: str,
@@ -149,6 +188,9 @@ def deliver_exomind_api(
 
     走 POST /ingest/async + GET /ingest/status,与 CLI 同契约:
     秒回 job_id → 轮询至 done/failed;超预算视为 pending(内容已入库,抽取仍在跑)。
+    正文超 INGEST_MAX_CONTENT_CHARS 时按段落边界自动分片逐片投递
+    (标题加「(i/n)」后缀,各片独立 client_key);任一片失败即 failed,
+    detail 注明已成功的片,未投的片不再发。
 
     Args:
         md_path: 笔记文件。
@@ -157,7 +199,7 @@ def deliver_exomind_api(
         settings: 含 base_url / api_key 的配置。
         poster: ``(url, payload, headers) -> 响应 dict``(测试注入)。
         getter: ``(url, params, headers) -> 响应 dict``(测试注入)。
-        poll_interval_s / poll_budget_s: 轮询节奏与总预算。
+        poll_interval_s / poll_budget_s: 轮询节奏与总预算(单片)。
         source_url: 原文链接(video 路线);content+url 并存时服务端仅作出处留痕,不抓取。
 
     Returns:
@@ -168,7 +210,16 @@ def deliver_exomind_api(
 
     def _post(url: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
         resp = httpx.post(url, json=payload, headers=headers, timeout=60.0)
-        resp.raise_for_status()
+        if resp.is_error:
+            # 4xx/5xx 必须带服务端 detail:裸状态码(如「422」)用户无从下手,
+            # 服务端拒收原因(内容太长/标题超限)只在响应体里。
+            try:
+                body: Any = resp.json()
+                detail = body.get("detail") if isinstance(body, dict) else body
+                msg = str(detail) if detail else resp.text[:200]
+            except ValueError:
+                msg = resp.text[:200]
+            raise RuntimeError(f"HTTP {resp.status_code}: {msg}") from None
         return dict(resp.json())
 
     def _get(url: str, params: dict[str, str], headers: dict[str, str]) -> dict[str, Any]:
@@ -182,39 +233,67 @@ def deliver_exomind_api(
     headers = ua_headers(Authorization=f"Bearer {settings.exomind_api_key}")
 
     content = md_path.read_text(encoding="utf-8")
-    payload: dict[str, Any] = {"content": content, "origin": EXOMIND_ORIGIN, "client_key": client_key_for(content)}
-    if title:
-        payload["title"] = title
-    if tags:
-        payload["tags"] = tags
-    if source_url:
-        payload["url"] = source_url
-    try:
-        resp = post(f"{base}/ingest/async", payload, headers)
-    except Exception as e:
-        return DeliveryResult("failed", f"提交 ingest 失败: {e}")
-    job_id = resp.get("job_id")
-    if not job_id:
-        return DeliveryResult("failed", f"响应缺 job_id: {str(resp)[:200]}")
+    chunks = split_for_ingest(content)
+    total = len(chunks)
 
-    deadline = time.monotonic() + poll_budget_s
-    try:
-        while time.monotonic() < deadline:
-            try:
-                st = get(f"{base}/ingest/status", {"job_id": str(job_id)}, headers)
-            except Exception as e:
-                return DeliveryResult("failed", f"查询回执失败(job_id={job_id}): {e}")
-            status = st.get("status")
-            if status == "done":
-                n_entities = _as_count(st.get("entities"))
-                n_pages = _as_count(st.get("created_pages"))
-                n_updated = _as_count(st.get("updated_pages"))
-                detail = f"已入库:实体 {n_entities} 个,页面 +{n_pages}/更{n_updated}(job_id={job_id})"
-                return DeliveryResult("delivered", detail)
-            if status == "failed":
-                return DeliveryResult("failed", f"服务端抽取失败: {st.get('error', '未知')}(job_id={job_id})")
-            time.sleep(poll_interval_s)
-    except KeyboardInterrupt:
-        # Ctrl-C = 不等回执了;内容已提交,服务端 job 会继续跑完
-        return DeliveryResult("pending", f"已提交,不再等待回执(job_id={job_id})")
-    return DeliveryResult("pending", f"已提交,后台抽取中(job_id={job_id})")
+    def _deliver_chunk(idx: int, chunk: str) -> DeliveryResult:
+        """投递单片:提交 → 轮询回执,与未分片路径完全同构。"""
+        chunk_title = title
+        if total > 1 and title:
+            # 服务端标题上限 200 字符,后缀前先截,拒收在客户端就挡住
+            chunk_title = f"{title[:190]}({idx}/{total})"
+        payload: dict[str, Any] = {"content": chunk, "origin": EXOMIND_ORIGIN, "client_key": client_key_for(chunk)}
+        if chunk_title:
+            payload["title"] = chunk_title
+        if tags:
+            payload["tags"] = tags
+        if source_url:
+            payload["url"] = source_url
+        try:
+            resp = post(f"{base}/ingest/async", payload, headers)
+        except Exception as e:
+            return DeliveryResult("failed", f"提交 ingest 失败: {e}")
+        job_id = resp.get("job_id")
+        if not job_id:
+            return DeliveryResult("failed", f"响应缺 job_id: {str(resp)[:200]}")
+
+        deadline = time.monotonic() + poll_budget_s
+        try:
+            while time.monotonic() < deadline:
+                try:
+                    st = get(f"{base}/ingest/status", {"job_id": str(job_id)}, headers)
+                except Exception as e:
+                    return DeliveryResult("failed", f"查询回执失败(job_id={job_id}): {e}")
+                status = st.get("status")
+                if status == "done":
+                    n_entities = _as_count(st.get("entities"))
+                    n_pages = _as_count(st.get("created_pages"))
+                    n_updated = _as_count(st.get("updated_pages"))
+                    detail = f"已入库:实体 {n_entities} 个,页面 +{n_pages}/更{n_updated}(job_id={job_id})"
+                    return DeliveryResult("delivered", detail)
+                if status == "failed":
+                    return DeliveryResult("failed", f"服务端抽取失败: {st.get('error', '未知')}(job_id={job_id})")
+                time.sleep(poll_interval_s)
+        except KeyboardInterrupt:
+            # Ctrl-C = 不等回执了;内容已提交,服务端 job 会继续跑完
+            return DeliveryResult("pending", f"已提交,不再等待回执(job_id={job_id})")
+        return DeliveryResult("pending", f"已提交,后台抽取中(job_id={job_id})")
+
+    results = [_deliver_chunk(i + 1, chunk) for i, chunk in enumerate(chunks)]
+    if total == 1:
+        return results[0]
+    prefix = f"分 {total} 片投递:"
+    statuses = {r.status for r in results}
+    if statuses == {"delivered"}:
+        summary = ";".join(f"片{i + 1} {r.detail}" for i, r in enumerate(results))
+        return DeliveryResult("delivered", f"{prefix}全部入库。{summary}")
+    if "failed" in statuses:
+        ok = sum(1 for r in results if r.status == "delivered")
+        failed_idx = next(i + 1 for i, r in enumerate(results) if r.status == "failed")
+        return DeliveryResult(
+            "failed",
+            f"{prefix}第 {failed_idx} 片失败({results[failed_idx - 1].detail}),已成功 {ok}/{total} 片;"
+            "已入库片重跑时会按 client_key 幂等去重",
+        )
+    summary = ";".join(f"片{i + 1} {r.status}:{r.detail}" for i, r in enumerate(results))
+    return DeliveryResult("pending", f"{prefix}部分片仍在抽取。{summary}")
