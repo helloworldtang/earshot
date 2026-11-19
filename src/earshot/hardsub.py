@@ -312,7 +312,14 @@ def download_video(url: str, dst_dir: Path, cookies_browser: str | None = None) 
         "no_warnings": True,
         "noplaylist": True,
         # 无音轨视频(本场景触发源)自动落到单流分支,无需合并
-        "format": "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
+        # B站常把部分甚至全部流派到 mcdn PCDN 节点(:8082),家宽多不可直连(读超时):
+        # [url!*=mcdn] 优先常规 upos CDN;音频全在 mcdn 时只下视频流(OCR 只要画面,
+        # 音轨无用);常规 CDN 全灭则回落未过滤表达式,行为同旧版
+        "format": (
+            "bv*[ext=mp4][url!*=mcdn]+ba[ext=m4a][url!*=mcdn]"
+            "/bv*[ext=mp4][url!*=mcdn]"
+            "/bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b"
+        ),
         "merge_output_format": "mp4",
         "outtmpl": str(dst_dir / f"ocr-{ts}.%(ext)s"),
     }
