@@ -742,10 +742,10 @@ def main(argv: list[str] | None = None) -> int:
         if not _interactive():
             parser.print_help()
             return EXIT_FAIL
-        choice = _prompt("earshot 模式 [1]听录 [2]视频字幕 [3]本地文件 [4]硬字幕OCR(回车=1;输入 q 退出)", default="1")
+        choice = _prompt("earshot 模式 [1]视频字幕 [2]听录 [3]本地文件 [4]硬字幕OCR(回车=1;输入 q 退出)", default="1")
         if choice == "q":
             return EXIT_OK
-        mapping = {"1": "listen", "2": "video", "3": "audio", "4": "ocr"}
+        mapping = {"1": "video", "2": "listen", "3": "audio", "4": "ocr"}
         sub = mapping.get(choice)
         if sub is None:
             print(f"✗ 无效选择: {choice}")
