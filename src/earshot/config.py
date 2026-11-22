@@ -18,6 +18,7 @@ EXOMIND_BASE_URL_ENV = "EXOMIND_BASE_URL"
 
 DEFAULT_EXOMIND_BASE_URL = "https://exomind-api.ai-as.cn"
 EXOMIND_CONFIG_FILENAME = ".exomind/config.json"
+STATE_FILENAME = "state.json"
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +68,36 @@ def load_settings(
         exomind_base_url=base_url.rstrip("/"),
         exomind_api_key=api_key,
     )
+
+
+def load_state(home: Path) -> dict[str, str]:
+    """读取本地状态文件(``~/.earshot/state.json``),不存在或损坏时返回空 dict。
+
+    与 config 的区别:state 是 CLI 运行中产生的记忆(如上次的选择),可随时重建。
+
+    Args:
+        home: earshot 数据目录。
+    """
+    try:
+        raw = json.loads((home / STATE_FILENAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {k: v for k, v in raw.items() if isinstance(v, str)}
+
+
+def save_state(home: Path, **kv: str) -> None:
+    """合并写入本地状态文件(保留未涉及的键)。
+
+    Args:
+        home: earshot 数据目录。
+        **kv: 要写入的键值对(均为字符串)。
+    """
+    state = load_state(home)
+    state.update(kv)
+    home.mkdir(parents=True, exist_ok=True)
+    (home / STATE_FILENAME).write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def load_exomind_config(path: Path | None = None) -> dict[str, str]:

@@ -105,3 +105,35 @@ def test_run_pipeline_default_tag_follows_source(monkeypatch: pytest.MonkeyPatch
     rc = cli._run_pipeline([Segment(0.0, 1.0, "内容")], meta, args, _settings())
     assert rc == 0
     assert captured["tags"] == ["视频字幕"]
+
+
+def _settings_home(home: Path) -> Settings:
+    return Settings(
+        home=home,
+        model_root=home / "models",
+        exomind_base_url="https://api.example.com",
+        exomind_api_key="",
+    )
+
+
+def test_resolve_cookies_asks_once_then_remembers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """交互问一次后落盘记忆:第二次起不再问,静默沿用上次选择。"""
+    settings = _settings_home(tmp_path)
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    monkeypatch.setattr(cli, "_prompt", lambda *a, **k: "safari")
+    assert cli._resolve_cookies(None, settings) == "safari"
+    prompts: list[object] = []
+    monkeypatch.setattr(cli, "_prompt", lambda *a, **k: prompts.append(a) or "chrome")
+    assert cli._resolve_cookies(None, settings) == "safari"  # 记忆生效
+    assert not prompts
+
+
+def test_resolve_cookies_explicit_none_overrides_and_persists(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """显式 --cookies-from-browser none 走匿名并覆盖记忆;之后无旗标也沿用匿名。"""
+    from earshot.config import load_state
+
+    settings = _settings_home(tmp_path)
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    assert cli._resolve_cookies("none", settings) is None
+    assert load_state(settings.home)["cookies_browser"] == ""
+    assert cli._resolve_cookies(None, settings) is None  # 匿名也被记住,且不再追问

@@ -24,7 +24,7 @@ from earshot.compose import (
     outbox_path,
     render_markdown,
 )
-from earshot.config import DEFAULT_EXOMIND_BASE_URL, Settings, load_settings
+from earshot.config import DEFAULT_EXOMIND_BASE_URL, Settings, load_settings, load_state, save_state
 from earshot.deliver import DeliveryResult, deliver_exomind, deliver_exomind_api, deliver_webhook
 from earshot.extract import ExtractError, ffmpeg_available, to_wav16k, wav_duration
 from earshot.hardsub import FrameOcr, HardsubError, download_video, extract_hardsub, is_url, make_rapidocr_engine
@@ -78,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_video.add_argument("url", nargs="?", help="视频链接(B站等 yt-dlp 支持的平台;缺省时交互询问)")
     p_video.add_argument(
         "--cookies-from-browser",
-        help="浏览器名(chrome/safari/firefox/edge),拉 AI 字幕(ai-zh)通常需要登录态",
+        help="浏览器名(chrome/safari/firefox/edge;none=匿名)。拉 AI 字幕(ai-zh)通常需要登录态;选择会被记住",
     )
 
     p_ocr = sub.add_parser("ocr", help="硬字幕视频 OCR 提取(字幕烧在画面里、无音轨的场景)")
@@ -422,6 +422,28 @@ def _short_url(url: str, max_len: int = 60) -> str:
     return base
 
 
+def _resolve_cookies(raw: str | None, settings: Settings) -> str | None:
+    """解析字幕登录态浏览器:显式旗标 > 上次的选择(落盘记忆)> 交互问一次。
+
+    高频路径上「回车=chrome」是每回都付的税,问过一次就记住;显式旗标永远是
+    最新信号,顺带更新记忆(none/n 表示匿名)。
+    """
+    if raw is not None:
+        cookies = None if raw.lower() in ("n", "none") else raw
+        save_state(settings.home, cookies_browser=cookies or "")
+        return cookies
+    remembered = load_state(settings.home).get("cookies_browser")
+    if remembered is not None:
+        print(f"→ 字幕登录态:{remembered or '匿名'}(上次的选择;--cookies-from-browser <名|none> 可改)")
+        return remembered or None
+    if _interactive():
+        ans = _prompt("字幕登录态浏览器(拉 AI 字幕用;回车=chrome,输 n 匿名;记住,之后不再问)", default="chrome")
+        cookies = None if ans.lower() in ("n", "none") else ans
+        save_state(settings.home, cookies_browser=cookies or "")
+        return cookies
+    return None
+
+
 def cmd_video(args: argparse.Namespace, settings: Settings) -> int:
     url = args.url
     if not url:
@@ -437,10 +459,7 @@ def cmd_video(args: argparse.Namespace, settings: Settings) -> int:
         if not url:
             print("✗ 未提供链接")
             return EXIT_FAIL
-    cookies = args.cookies_from_browser
-    if cookies is None and _interactive():
-        ans = _prompt("字幕登录态浏览器(拉 AI 字幕用;回车=chrome,输 n 匿名)", default="chrome")
-        cookies = None if ans.lower() == "n" else ans
+    cookies = _resolve_cookies(args.cookies_from_browser, settings)
     try:
         meta, segments = fetch_video_note(url, cookies)
     except SubtitleError as e:
