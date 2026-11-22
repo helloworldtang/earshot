@@ -40,10 +40,13 @@ EXIT_NO_CONTENT = 2
 
 _LEVEL_BLOCKS = "▁▂▃▄▅▆▇█"
 
+# 各摄入路线的默认 tag(与来源语义对齐,不再是清一色「旁听」);手动补投无来源,用通用词
+DEFAULT_TAG_BY_SOURCE = {"listen": "旁听", "video": "视频字幕", "audio": "本地转写", "ocr": "硬字幕"}
+
 
 def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--title", help="笔记标题(默认取首句截断)")
-    p.add_argument("--tag", action="append", default=None, help="投递标签,可多次(默认 旁听)")
+    p.add_argument("--tag", action="append", default=None, help="投递标签,可多次(默认按来源定)")
     p.add_argument("--note", default="", help="来源备注,如「B站·xxx第3期」,写进脚注")
     p.add_argument("--engine", choices=["local", "server"], default="local", help="转写引擎(默认 local 端侧)")
     p.add_argument(
@@ -154,7 +157,7 @@ def _run_pipeline(
 
     segments = add_punctuation(segments)  # 无标点转写(B站AI字幕)按时间轴补齐;已有标点自动跳过
     title = derive_title(segments, args.title)
-    tags = args.tag if args.tag else ["旁听"]
+    tags = args.tag if args.tag else [DEFAULT_TAG_BY_SOURCE.get(meta.source, "剪藏")]
     paragraphs = ["".join(s.text for s in group) for group in group_paragraphs(segments, chapter_breaks=chapter_breaks)]
     md = render_markdown(meta, paragraphs, title)
 
@@ -444,6 +447,11 @@ def cmd_video(args: argparse.Namespace, settings: Settings) -> int:
         print(f"✗ {e}")
         return EXIT_FAIL
     print(f"→ {meta.title}(UP:{meta.uploader},字幕:{meta.subtitle_lang},{len(segments)} 段)")
+    if not segments:
+        # 字幕轨 0 条是正确事实(硬字幕烧在画面里),别让用户在这里空手而归——接住最常见的走错路
+        print("✗ 该视频无外挂字幕轨(疑似硬字幕烧录)")
+        print(f"  → 可改走画面识别:earshot ocr {url}")
+        return EXIT_NO_CONTENT
     if not args.title:
         args.title = meta.title  # 视频有正标题,优先于首句截断
     if not args.note:
@@ -553,7 +561,7 @@ def cmd_deliver(args: argparse.Namespace, settings: Settings) -> int:
     if not title:
         first = next((ln[2:].strip() for ln in md.splitlines() if ln.startswith("# ")), "")
         title = first or md_path.stem
-    tags = args.tag if args.tag else ["旁听"]
+    tags = args.tag if args.tag else ["剪藏"]  # 手动补投无来源信息,用通用 tag
     if args.deliver == "none":
         print("跳过投递(--deliver none)")
         return EXIT_OK
@@ -742,7 +750,8 @@ def main(argv: list[str] | None = None) -> int:
         if not _interactive():
             parser.print_help()
             return EXIT_FAIL
-        choice = _prompt("earshot 模式 [1]视频字幕 [2]听录 [3]本地文件 [4]硬字幕OCR(回车=1;输入 q 退出)", default="1")
+        menu = "earshot 模式 [1]视频字幕 [2]听录 [3]本地音视频转写 [4]硬字幕OCR(回车=1;输入 q 退出)"
+        choice = _prompt(menu, default="1")
         if choice == "q":
             return EXIT_OK
         mapping = {"1": "video", "2": "listen", "3": "audio", "4": "ocr"}
