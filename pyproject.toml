@@ -1,7 +1,7 @@
 [project]
 name = "earshot-cli"
-version = "0.8.0"
-description = "旁听剪藏:跨平台桌面端系统声录制 → 本地转写 → 投递知识库(默认 ExoMind,可插拔)"
+version = "0.8.1"
+description = "媒体剪藏:视频字幕/系统声听录/本地音频/硬字幕OCR 四路摄入,端侧转写 → Markdown → 投递知识库(默认 ExoMind,可插拔)"
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Jackie" }]

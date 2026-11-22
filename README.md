@@ -1,12 +1,14 @@
 # earshot
 
-旁听剪藏:**听到的,都能进知识库。**
+媒体剪藏:**听到看到的,都能进知识库。**
 
-听 B站/视频号/播客/讲座时开着它,听完 `Ctrl-C`,录音自动转写为 Markdown 并投递到你的知识库(默认 [ExoMind 知识飞轮](https://exomind.ai-as.cn),可插拔任意 webhook)。纯端侧转写,无限流、零 API 费用。
+给它一条视频链接,或听播客/讲座时开着它,内容自动转写为 Markdown 并投递到你的知识库(默认 [ExoMind 知识飞轮](https://exomind.ai-as.cn),可插拔任意 webhook)。纯端侧转写,无限流、零 API 费用。
 
 ```
-系统声音 ──录制──> 16k wav ──silero VAD 切段──> SenseVoice 端侧识别(实时字幕) ──> Markdown ──> 投递(exomind / webhook / 仅存档)
-视频链接 ──yt-dlp──> 平台字幕(ai-zh/CC) ────────────────────────────┘(高信噪比路线)
+系统声音 ──录制──> 16k wav ──silero VAD 切段──> SenseVoice 端侧识别(实时字幕) ─┐
+视频链接 ──yt-dlp──> 平台字幕(ai-zh/CC,高信噪比路线) ─────────────────────────┼──> Markdown ──> 投递(exomind / webhook / 仅存档)
+本地音频 ──文件──> 16k wav ──VAD 切段──> SenseVoice 端侧识别 ──────────────────┤
+硬字幕视频 ──ffmpeg 抽帧──> PaddleOCR(无音轨路线) ─────────────────────────────┘
 ```
 
 ## 安装(开箱即用)

@@ -1,7 +1,7 @@
-"""earshot:旁听剪藏 —— 听到的都能进知识库。
+"""earshot:媒体剪藏 —— 听到看到的都能进知识库。
 
-跨平台桌面端:系统声环回录制(macOS 需 BlackHole)→ 端侧 VAD+ASR 转写
-→ 组装 Markdown → 投递(默认 exomind CLI,可插拔 webhook)。
+跨平台桌面端四路摄入:视频字幕(平台已生成文本)/系统声听录(macOS 需 BlackHole)
+/本地音频/硬字幕OCR → 端侧转写 → 组装 Markdown → 投递(默认 exomind CLI,可插拔 webhook)。
 """
 
 from importlib import metadata as _metadata

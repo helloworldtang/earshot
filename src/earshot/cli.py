@@ -58,7 +58,7 @@ def _add_common(p: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="earshot", description="旁听剪藏:听到的都能进知识库")
+    parser = argparse.ArgumentParser(prog="earshot", description="媒体剪藏:听到看到的都能进知识库")
     parser.add_argument("--version", action="version", version=f"earshot {__version__}")
     sub = parser.add_subparsers(dest="command")  # 不带子命令时进入交互向导
 
