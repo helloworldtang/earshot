@@ -109,9 +109,9 @@ def test_deliver_webhook_error_surfaces_server_detail(monkeypatch: Any) -> None:
         def json(self) -> dict[str, str]:
             return {"detail": "invalid signature"}
 
-    import earshot.deliver as deliver_mod
+    import httpx
 
-    monkeypatch.setattr(deliver_mod.httpx, "post", lambda *a, **k: _FakeResp(), raising=True)
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _FakeResp(), raising=True)
     result = deliver_webhook("https://example.com/hook", "t", "c", [])
     assert result.status == "failed"
     assert "HTTP 400" in result.detail

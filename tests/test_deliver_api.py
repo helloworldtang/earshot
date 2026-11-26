@@ -267,9 +267,9 @@ def test_deliver_api_post_error_surfaces_server_detail(tmp_path: Path, monkeypat
         def json(self) -> dict[str, Any]:
             return {"detail": "内容太长(45570 字符),单次最多 30000 字符"}
 
-    import earshot.deliver as deliver_mod
+    import httpx
 
-    monkeypatch.setattr(deliver_mod.httpx, "post", lambda *a, **k: _FakeResp(), raising=True)
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _FakeResp(), raising=True)
     md = tmp_path / "note.md"
     md.write_text("内容", encoding="utf-8")
 

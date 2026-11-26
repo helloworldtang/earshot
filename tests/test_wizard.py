@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from earshot import cli
+from earshot.compose import NoteMeta
 from earshot.config import Settings
 from earshot.transcribe import Segment
 
@@ -101,7 +102,7 @@ def test_run_pipeline_default_tag_follows_source(monkeypatch: pytest.MonkeyPatch
     captured: dict[str, object] = {}
     monkeypatch.setattr(cli, "_do_deliver", lambda *a: captured.update(tags=a[3]) or 0)
     args = cli.build_parser().parse_args(["video", "https://x", "-y", "--out", str(tmp_path)])
-    meta = cli.NoteMeta(started_at=datetime.now(), duration_s=1.0, device="-", source="video", note="")
+    meta = NoteMeta(started_at=datetime.now(), duration_s=1.0, device="-", source="video", note="")
     rc = cli._run_pipeline([Segment(0.0, 1.0, "内容")], meta, args, _settings())
     assert rc == 0
     assert captured["tags"] == ["视频字幕"]
@@ -123,7 +124,12 @@ def test_resolve_cookies_asks_once_then_remembers(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(cli, "_prompt", lambda *a, **k: "safari")
     assert cli._resolve_cookies(None, settings) == "safari"
     prompts: list[object] = []
-    monkeypatch.setattr(cli, "_prompt", lambda *a, **k: prompts.append(a) or "chrome")
+
+    def _record_prompt(*a: object, **_k: object) -> str:
+        prompts.append(a)
+        return "chrome"
+
+    monkeypatch.setattr(cli, "_prompt", _record_prompt)
     assert cli._resolve_cookies(None, settings) == "safari"  # 记忆生效
     assert not prompts
 
