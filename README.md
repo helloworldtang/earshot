@@ -190,6 +190,8 @@ earshot clean --days 30
 
 常用参数:`--title`(默认取首句截断40字)、`--tag`(可多次)、`--note`(来源备注写入脚注)、
 `--engine server`(改走云端 dashscope 转写,复用 `~/.exomind/config.json` 凭据)、
+`--lang`(listen/audio 本地转写语种,默认 `zh`;纯外语音频才用 `auto` —— 逐段自动判语种
+在旁听切出的超短片段上会把中文误判成日/韩)、
 `--deliver webhook --webhook <url>`(投递到任意知识库,POST JSON `{origin,title,content,tags}`)、
 `--deliver none`(只落 `~/.earshot/outbox/` 存档)。
 

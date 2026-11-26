@@ -14,6 +14,10 @@ from typing import Any
 import numpy as np
 
 SAMPLE_RATE = 16000
+# SenseVoice 支持的语种;auto=逐段自动判语种,实时旁听的超短片段上会把中文误判成
+# 日/韩(zh↔ja↔ko 声学最易混,SenseVoice 已知问题),故默认钉死 zh 跳过语种分类。
+SENSE_VOICE_LANGS = ("auto", "zh", "en", "ja", "ko", "yue")
+DEFAULT_LANG = "zh"
 VAD_WINDOW = 512  # silero 要求 512 样本/窗(16k 下 32ms)
 MAX_SPEECH_RUN_S = 55.0  # 连续无停顿语音强制切段,防 VAD 60s buffer 溢出
 MIN_SILENCE_S = 0.45  # 短于此的静音不算说完(挡住句中停顿)
@@ -42,16 +46,21 @@ class Segment:
 class LocalTranscriber:
     """VAD 切段 + SenseVoice 批量识别,输入须为 16k mono wav。"""
 
-    def __init__(self, model_root: Path) -> None:
+    def __init__(self, model_root: Path, language: str = DEFAULT_LANG) -> None:
         """加载 ASR/VAD 模型。
 
         Args:
             model_root: 模型根目录,须含 ``asr/model.int8.onnx``、``asr/tokens.txt``、
                 ``vad/silero_vad.onnx``(scripts/download_models.sh 产物)。
+            language: 转写语种,取值见 ``SENSE_VOICE_LANGS``。默认钉死 zh(跳过逐段
+                语种分类,根治短段日/韩误判);纯外语音频才用 auto。
 
         Raises:
-            TranscribeError: 模型缺失或初始化失败。
+            TranscribeError: 语种非法、模型缺失或初始化失败。
         """
+        if language not in SENSE_VOICE_LANGS:
+            msg = f"语种非法: {language}(可选 {'/'.join(SENSE_VOICE_LANGS)})"
+            raise TranscribeError(msg)
         asr_model = model_root / "asr" / "model.int8.onnx"
         tokens = model_root / "asr" / "tokens.txt"
         vad_model = model_root / "vad" / "silero_vad.onnx"
@@ -66,6 +75,7 @@ class LocalTranscriber:
             self._recognizer: Any = sherpa_onnx.OfflineRecognizer.from_sense_voice(
                 model=str(asr_model),
                 tokens=str(tokens),
+                language=language,
                 use_itn=True,
             )
             self._vad_model_config: Any = sherpa_onnx.VadModelConfig()

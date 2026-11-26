@@ -4,12 +4,14 @@ FakeVad 语义:每次 accept_waveform(= 一个 VAD 窗,512 样本)即闭一段,
 段样本就是该窗 —— 与 silero 的真实闭合时机不同,但足以驱动核心循环。
 """
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pytest
 
 from earshot.live import LiveSession
-from earshot.transcribe import VAD_WINDOW, Segment, run_live
+from earshot.transcribe import VAD_WINDOW, LocalTranscriber, Segment, TranscribeError, run_live
 
 
 class _FakeSeg:
@@ -153,12 +155,23 @@ def test_live_session_error_surfaced_at_finalize() -> None:
         def _decode(self, samples: np.ndarray) -> str:
             raise RuntimeError("boom")
 
-    import pytest
-
-    from earshot.transcribe import TranscribeError
-
     session = LiveSession(_Boom(), on_text=None)
     session.start()
     session.push(_windows(1))
     with pytest.raises(TranscribeError):
         session.finalize(timeout_s=10)
+
+
+def test_local_transcriber_rejects_invalid_lang(tmp_path: Path) -> None:
+    """语种拼错(如 jp)在模型检查前即被拒:给可行动报错,不触发模型下载。"""
+    with pytest.raises(TranscribeError, match="语种非法"):
+        LocalTranscriber(tmp_path, language="jp")
+
+
+def test_lang_flag_wired_on_local_routes() -> None:
+    """--lang 挂在本地转写两路(listen/audio),默认 zh,auto 可显式选。"""
+    from earshot.cli import build_parser
+
+    parser = build_parser()
+    assert parser.parse_args(["listen"]).lang == "zh"
+    assert parser.parse_args(["audio", "x.mp3", "--lang", "auto"]).lang == "auto"

@@ -31,7 +31,7 @@ from earshot.hardsub import FrameOcr, HardsubError, download_video, extract_hard
 from earshot.live import LiveSession
 from earshot.models import ensure_models
 from earshot.subtitle import SubtitleError, fetch_video_note
-from earshot.transcribe import LocalTranscriber, Segment, TranscribeError
+from earshot.transcribe import DEFAULT_LANG, SENSE_VOICE_LANGS, LocalTranscriber, Segment, TranscribeError
 from earshot.transcribe_cloud import CloudTranscribeError, transcribe_cloud
 
 EXIT_OK = 0
@@ -60,6 +60,15 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("-y", "--yes", action="store_true", help="跳过内容确认,直接投递")
 
 
+def _add_lang(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--lang",
+        choices=SENSE_VOICE_LANGS,
+        default=DEFAULT_LANG,
+        help="转写语种(默认 zh;auto 逐段自动判,实时旁听短段会把中文误判成日/韩)",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="earshot", description="媒体剪藏:听到看到的都能进知识库")
     parser.add_argument("--version", action="version", version=f"earshot {__version__}")
@@ -68,9 +77,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_listen = sub.add_parser("listen", help="录系统声音(Ctrl-C=完成),转写并投递")
     _add_common(p_listen)
     p_listen.add_argument("--device", help="采集设备名子串(默认:默认扬声器的环回)")
+    _add_lang(p_listen)
 
     p_audio = sub.add_parser("audio", help="转写已有音视频文件并投递")
     _add_common(p_audio)
+    _add_lang(p_audio)
     p_audio.add_argument("file", type=Path, nargs="?", help="音视频文件路径(缺省时交互询问)")
 
     p_video = sub.add_parser("video", help="B站等视频链接直拉字幕入库(无噪音路线)")
@@ -121,7 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _transcribe(wav16k: Path, engine: str, settings: Settings) -> list[Segment]:
+def _transcribe(wav16k: Path, engine: str, settings: Settings, lang: str = DEFAULT_LANG) -> list[Segment]:
     """按引擎转写,返回 Segment 列表(server 引擎按行造伪段)。"""
     if engine == "server":
         print("→ 云端转写中(经 exomind /transcribe,dashscope)…")
@@ -129,7 +140,7 @@ def _transcribe(wav16k: Path, engine: str, settings: Settings) -> list[Segment]:
         return [Segment(0.0, 0.0, line.strip()) for line in text.splitlines() if line.strip()]
     print("→ 本地转写中(VAD+SenseVoice)…")
     ensure_models(settings.model_root)  # 缺失则首次运行自动下载(hf-mirror)
-    transcriber = LocalTranscriber(settings.model_root)
+    transcriber = LocalTranscriber(settings.model_root, language=lang)
 
     def _progress(frac: float) -> None:
         print(f"\r→ 本地转写中… {frac * 100:3.0f}%", end="", flush=True)
@@ -257,7 +268,7 @@ def cmd_listen(args: argparse.Namespace, settings: Settings) -> int:
     if args.engine == "local":
         try:
             ensure_models(settings.model_root)
-            transcriber = LocalTranscriber(settings.model_root)
+            transcriber = LocalTranscriber(settings.model_root, language=args.lang)
         except (RuntimeError, TranscribeError) as e:
             print(f"✗ {e}")
             return EXIT_FAIL
@@ -348,7 +359,7 @@ def cmd_audio(args: argparse.Namespace, settings: Settings) -> int:
         print(f"✗ {e}")
         return EXIT_FAIL
     try:
-        segments = _transcribe(wav16k, args.engine, settings)
+        segments = _transcribe(wav16k, args.engine, settings, lang=args.lang)
     except (TranscribeError, CloudTranscribeError) as e:
         print(f"✗ {e}")
         return EXIT_FAIL
