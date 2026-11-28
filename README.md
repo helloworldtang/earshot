@@ -5,7 +5,7 @@
 给它一条视频链接,或听播客/讲座时开着它,内容自动转写为 Markdown 并投递到你的知识库(默认 [ExoMind 知识飞轮](https://exomind.ai-as.cn),可插拔任意 webhook)。纯端侧转写,无限流、零 API 费用。
 
 ```
-系统声音 ──录制──> 16k wav ──silero VAD 切段──> SenseVoice 端侧识别(实时字幕) ─┐
+系统声音 ──录制──> 16k wav ──silero VAD 切段──> SenseVoice 终稿(粗稿流式即时上屏,两遍识别) ─┐
 视频链接 ──yt-dlp──> 平台字幕(ai-zh/CC,高信噪比路线) ─────────────────────────┼──> Markdown ──> 投递(exomind / webhook / 仅存档)
 本地音频 ──文件──> 16k wav ──VAD 切段──> SenseVoice 端侧识别 ──────────────────┤
 硬字幕视频 ──ffmpeg 抽帧──> PaddleOCR(无音轨路线) ─────────────────────────────┘
@@ -163,7 +163,7 @@ uv tool install "earshot-cli @ https://github.com/helloworldtang/earshot/archive
 ## 使用
 
 ```bash
-# 旁听模式:开录 → 听(实时字幕滚动) → Ctrl-C 完成 → 预览确认 → 投递
+# 旁听模式:开录 → 听(粗稿即时滚动,停顿处终稿纠错定格) → Ctrl-C 完成 → 预览确认 → 投递
 earshot listen
 earshot listen --note "B站·xxx第3期"
 

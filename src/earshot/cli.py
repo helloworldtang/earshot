@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -262,21 +263,32 @@ def cmd_listen(args: argparse.Namespace, settings: Settings) -> int:
     started_at = datetime.now()
     raw_wav = tmp_dir / f"listen-{started_at.strftime('%Y%m%d-%H%M%S')}.wav"
 
-    # 实时字幕:本地引擎边录边转,段闭合即上屏
+    # 实时字幕:本地引擎边录边转,粗稿即时上屏,段闭合 SenseVoice 终稿回写定格(两遍识别)
     live: LiveSession | None = None
     on_audio = None
+    cap_lock = threading.Lock()
+    cap_open = False  # 粗稿行当前亮着(电平让路,不踩字幕)
     if args.engine == "local":
         try:
-            ensure_models(settings.model_root)
+            ensure_models(settings.model_root, include_stream=True)
             transcriber = LocalTranscriber(settings.model_root, language=args.lang)
         except (RuntimeError, TranscribeError) as e:
             print(f"✗ {e}")
             return EXIT_FAIL
 
-        def _show(text: str) -> None:
-            print(f"\r\033[K  ↪ {text}", flush=True)  # 清掉电平行再出字幕
+        def _show_partial(text: str) -> None:
+            nonlocal cap_open
+            with cap_lock:
+                print(f"\r\033[K  ↪ {text}", end="", flush=True)  # 粗稿原行刷新(不换行=可被改写)
+                cap_open = True
 
-        live = LiveSession(transcriber, on_text=_show)
+        def _show(text: str) -> None:
+            nonlocal cap_open
+            with cap_lock:
+                print(f"\r\033[K  ↪ {text}", flush=True)  # 清掉粗稿行,终稿换行定格
+                cap_open = False
+
+        live = LiveSession(transcriber, on_text=_show, on_partial=_show_partial)
         live.start()
 
         import soxr
@@ -295,11 +307,15 @@ def cmd_listen(args: argparse.Namespace, settings: Settings) -> int:
     t0 = _time.monotonic()
 
     def _meter(rms: float) -> None:
-        elapsed = _time.monotonic() - t0
-        m, s = divmod(int(elapsed), 60)
-        level = int(min(1.0, max(rms, 0.0) * 8.0) * len(_LEVEL_BLOCKS))
-        bar = _LEVEL_BLOCKS[level - 1] * max(level, 1) if level else "·"
-        print(f"\r⏺ {m:02d}:{s:02d} {bar:<8}", end="", flush=True)
+        nonlocal cap_open
+        with cap_lock:
+            if cap_open:
+                return  # 字幕行亮着(说话中),电平让路;静音终稿定格后自动恢复
+            elapsed = _time.monotonic() - t0
+            m, s = divmod(int(elapsed), 60)
+            level = int(min(1.0, max(rms, 0.0) * 8.0) * len(_LEVEL_BLOCKS))
+            bar = _LEVEL_BLOCKS[level - 1] * max(level, 1) if level else "·"
+            print(f"\r⏺ {m:02d}:{s:02d} {bar:<8}", end="", flush=True)
 
     duration_s = record_to_wav(mic, raw_wav, on_level=_meter, on_audio=on_audio)
     print()
@@ -642,13 +658,18 @@ def cmd_doctor(_args: argparse.Namespace, settings: Settings) -> int:
             check("采集设备", False, "无环回设备,检查系统音频")
     except Exception as e:  # soundcard 底层异常族不稳定,收口
         check("采集设备", False, f"soundcard 枚举失败: {e}")
-    from earshot.models import missing_models
+    from earshot.models import missing_models, missing_stream_models
 
     missing = missing_models(settings.model_root)
     if missing:
         print(f"○ 模型:{len(missing)} 个缺失,首次转写时自动下载(~230MB,hf-mirror)")
     else:
         print("✓ 模型(SenseVoice int8 + silero VAD)")
+    stream_missing = missing_stream_models(settings.model_root)
+    if stream_missing:
+        print(f"○ 实时粗稿模型:{len(stream_missing)} 个缺失,首次 earshot listen 自动补齐(~190MB,缺则字幕退回仅终稿)")
+    else:
+        print("✓ 实时粗稿模型(流式 zipformer,实时字幕两遍识别)")
     check(
         "exomind 投递(API 凭据或 CLI)",
         bool(settings.exomind_api_key) or shutil.which("exomind") is not None,

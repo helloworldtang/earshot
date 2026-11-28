@@ -9,7 +9,7 @@ import wave
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -68,6 +68,7 @@ class LocalTranscriber:
             if not p.is_file():
                 msg = f"模型缺失: {p}(先跑 scripts/download_models.sh,或设 EARSHOT_MODEL_ROOT 指向已有模型)"
                 raise TranscribeError(msg)
+        self._model_root = model_root  # 粗稿供给器(_new_partial_feed)按需定位流式模型
 
         import sherpa_onnx  # noqa: PLC0415 延迟导入:纯逻辑模块/单测不拉模型栈
 
@@ -137,6 +138,70 @@ class LocalTranscriber:
             msg = f"解码失败: {e}"
             raise TranscribeError(msg) from e
 
+    def _new_partial_feed(self) -> PartialFeed | None:
+        """新建实时粗稿供给器(两遍识别首遍)。
+
+        流式模型缺失时返回 None:实时字幕降级为仅终稿(闭段才出),批量路线不受影响。
+        """
+        stream_dir = self._model_root / "asr_stream"
+        required = (
+            "tokens.txt",
+            "encoder-epoch-99-avg-1.int8.onnx",
+            "decoder-epoch-99-avg-1.onnx",
+            "joiner-epoch-99-avg-1.int8.onnx",
+        )
+        if any(not (stream_dir / p).is_file() for p in required):
+            return None
+        return PartialFeed(self._model_root)
+
+
+class PartialFeed:
+    """流式粗稿供给器:zipformer 双语逐窗增量解码,段闭合后 reset() 重开流。
+
+    两遍识别的首遍:粗稿只求快(说到的词百 ms 级上屏,同音字糙可接受),
+    准确性由 SenseVoice 整段重解码的终稿负责。粗稿无标点属预期。
+    """
+
+    def __init__(self, model_root: Path) -> None:
+        import sherpa_onnx  # noqa: PLC0415 延迟导入:纯逻辑模块/单测不拉模型栈
+
+        d = model_root / "asr_stream"
+        self._recognizer: Any = sherpa_onnx.OnlineRecognizer.from_transducer(
+            tokens=str(d / "tokens.txt"),
+            encoder=str(d / "encoder-epoch-99-avg-1.int8.onnx"),
+            decoder=str(d / "decoder-epoch-99-avg-1.onnx"),
+            joiner=str(d / "joiner-epoch-99-avg-1.int8.onnx"),
+            num_threads=2,
+            sample_rate=SAMPLE_RATE,
+            feature_dim=80,
+            enable_endpoint_detection=False,  # 闭段由 silero VAD 驱动,粗稿流只管增量解码
+            decoding_method="greedy_search",
+        )
+        self._stream: Any = self._recognizer.create_stream()
+
+    def __call__(self, window: np.ndarray) -> str:
+        """喂一窗(512 样本),返回当前粗稿(可能为空串)。"""
+        self._stream.accept_waveform(SAMPLE_RATE, window)
+        while self._recognizer.is_ready(self._stream):
+            self._recognizer.decode_stream(self._stream)
+        return str(self._recognizer.get_result(self._stream)).strip()
+
+    def reset(self) -> None:
+        """段闭合后重开流:粗稿从下一句重新开始,不背上一句的尾巴。"""
+        self._stream = self._recognizer.create_stream()
+
+
+class PartialFeeder(Protocol):
+    """run_live 依赖的粗稿接口(PartialFeed 与单测假件的结构协议)。"""
+
+    def __call__(self, window: np.ndarray) -> str:
+        """喂一窗音频,返回当前粗稿文本。"""
+        ...
+
+    def reset(self) -> None:
+        """段闭合后重开粗稿流。"""
+        ...
+
 
 def run_live(
     vad: Any,
@@ -146,19 +211,23 @@ def run_live(
     on_progress: Any = None,
     total_samples: int | None = None,
     max_speech_run_s: float = MAX_SPEECH_RUN_S,
+    partial_feed: PartialFeeder | None = None,
+    on_partial: Callable[[str], None] | None = None,
 ) -> list[Segment]:
     """VAD 切段 + 逐段解码核心:批量转写与实时旁听共用。
 
     Args:
         vad: sherpa VoiceActivityDetector(状态机,每次调用须新建)。
         chunks: 16k mono float32 音频块迭代器,逐块喂入。
-        decode: 单段样本 -> 文本。
-        on_segment: 每段解码完成即回调(实时字幕用)。
+        decode: 单段样本 -> 文本(终稿)。
+        on_segment: 每段解码完成即回调(实时字幕终稿用)。
         on_progress: 进度回调(需 total_samples;实时模式无总量则不回调)。
         total_samples: 音频总样本数(进度计算用,实时模式为 None)。
         max_speech_run_s: 连续无闭段语音超过该秒数强制闭段 —— 批量为防 VAD
             buffer 溢出(55s),实时为字幕滚动预算(10s):连续口播停顿全部低于
             min_silence 阈值时,VAD 永不自然闭段,字幕要等收尾 flush 才出。
+        partial_feed: 流式粗稿供给器(实时两遍识别首遍;None=不产粗稿)。
+        on_partial: 粗稿变化即回调(与 partial_feed 必须同给才启用)。
 
     Returns:
         按时间排序的 Segment 列表。
@@ -167,9 +236,10 @@ def run_live(
     fed = 0  # 已喂样本数(绝对时间锚点)
     last_pop = 0  # 上次弹出段时的已喂样本数
     next_progress = PARAGRAPH_FEED_EVERY_S * SAMPLE_RATE
+    last_partial = ""  # 粗稿去重:内容没变就不重复上屏
 
     def drain() -> None:
-        nonlocal last_pop
+        nonlocal last_pop, last_partial
         while not vad.empty():
             seg = vad.front
             seg_samples = np.asarray(seg.samples, dtype=np.float32)
@@ -182,6 +252,9 @@ def run_live(
                     on_segment(segment)
             vad.pop()
             last_pop = fed
+            if partial_feed is not None and on_partial is not None:
+                partial_feed.reset()  # 段闭合,粗稿流重开(终稿已上屏接管该行)
+                last_partial = ""
 
     carry = np.empty(0, dtype=np.float32)
     for chunk in chunks:
@@ -192,9 +265,15 @@ def run_live(
         )
         n_windows = len(buf) // VAD_WINDOW
         for w in range(n_windows):
-            vad.accept_waveform(buf[w * VAD_WINDOW : (w + 1) * VAD_WINDOW])
+            window = buf[w * VAD_WINDOW : (w + 1) * VAD_WINDOW]
+            vad.accept_waveform(window)
             fed += VAD_WINDOW
             drain()
+            if partial_feed is not None and on_partial is not None:
+                text = partial_feed(window)
+                if text and text != last_partial:
+                    on_partial(text)
+                    last_partial = text
             if bool(vad.is_speech_detected()) and (fed - last_pop) / SAMPLE_RATE > max_speech_run_s:
                 vad.flush()  # 强制闭段:连续语音超预算(批量=防溢出,实时=字幕滚动)
                 drain()

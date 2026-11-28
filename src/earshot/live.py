@@ -23,12 +23,20 @@ class LiveSession:
 
     Args:
         transcriber: 已初始化的 LocalTranscriber(提供 VAD 工厂与解码器)。
-        on_text: 每段文本就绪即回调(实时字幕;回调里别做慢活,会拖住解码线程)。
+        on_text: 每段文本就绪即回调(实时字幕终稿;回调里别做慢活,会拖住解码线程)。
+        on_partial: 粗稿变化即回调(实时字幕粗稿,两遍识别首遍;transcriber 须支持
+            ``_new_partial_feed``,流式模型缺失或本回调缺省时自动降级为仅终稿)。
     """
 
-    def __init__(self, transcriber: Any, on_text: Callable[[str], None] | None = None) -> None:
+    def __init__(
+        self,
+        transcriber: Any,
+        on_text: Callable[[str], None] | None = None,
+        on_partial: Callable[[str], None] | None = None,
+    ) -> None:
         self._transcriber = transcriber
         self._on_text = on_text
+        self._on_partial = on_partial
         self._q: queue.Queue[np.ndarray | None] = queue.Queue()
         self._segments: list[Segment] = []
         self._err: BaseException | None = None
@@ -57,12 +65,16 @@ class LiveSession:
 
     def _consume(self) -> None:
         try:
+            new_feed = getattr(self._transcriber, "_new_partial_feed", None)
+            partial_feed = new_feed() if new_feed is not None and self._on_partial is not None else None
             self._segments = run_live(
                 vad=self._transcriber._new_vad(),
                 chunks=self._iter_queue(),
                 decode=self._transcriber._decode,
                 on_segment=lambda seg: self._on_text(seg.text) if self._on_text else None,
                 max_speech_run_s=LIVE_CAPTION_MAX_RUN_S,  # 连续口播停顿<min_silence 时也保证字幕滚动
+                partial_feed=partial_feed,
+                on_partial=self._on_partial if partial_feed is not None else None,
             )
         except BaseException as e:  # 线程内不可抛,存起来由 finalize 抛
             self._err = e

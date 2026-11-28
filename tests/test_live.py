@@ -162,6 +162,96 @@ def test_live_session_error_surfaced_at_finalize() -> None:
         session.finalize(timeout_s=10)
 
 
+class FakePartialFeed:
+    """计数型粗稿供给器:每喂一窗产出唯一新文本,reset 只计数。"""
+
+    def __init__(self) -> None:
+        self.n_feed = 0
+        self.n_reset = 0
+
+    def __call__(self, window: np.ndarray) -> str:  # noqa: ARG002
+        self.n_feed += 1
+        return f"粗稿{self.n_feed}"
+
+    def reset(self) -> None:
+        self.n_reset += 1
+
+
+def test_run_live_partial_feeds_and_resets_per_segment() -> None:
+    """每窗一喂;FakeVad 每窗闭一段 → 粗稿流每段重开,粗稿按序上屏。"""
+    pf = FakePartialFeed()
+    partials: list[str] = []
+    segments = run_live(
+        vad=FakeVad(),
+        chunks=iter([_windows(3)]),
+        decode=_decode,
+        partial_feed=pf,
+        on_partial=partials.append,
+    )
+    assert len(segments) == 3
+    assert pf.n_feed == 3
+    assert pf.n_reset == 3  # 每段闭合都重开粗稿流
+    assert partials == ["粗稿1", "粗稿2", "粗稿3"]
+
+
+def test_run_live_partial_dedup_within_segment() -> None:
+    """段内粗稿文本没变不重复上屏;reset 只在段闭合时发生。"""
+
+    class _Same(FakePartialFeed):
+        def __call__(self, window: np.ndarray) -> str:  # noqa: ARG002
+            self.n_feed += 1
+            return "粗稿"
+
+    pf = _Same()
+    partials: list[str] = []
+    segments = run_live(
+        vad=NoNaturalCloseVad(),
+        chunks=iter([_windows(3)]),
+        decode=_decode,
+        partial_feed=pf,
+        on_partial=partials.append,
+    )
+    assert partials == ["粗稿"]  # 同文本 3 喂只上屏 1 次
+    assert pf.n_reset == 1  # 收尾 flush 闭段才重置
+    assert len(segments) == 1
+
+
+def test_live_session_partial_and_final_callbacks() -> None:
+    """粗稿/终稿双通道各自上屏,顺序保持。"""
+
+    class _PartialStub(_StubTranscriber):
+        def __init__(self) -> None:
+            self.feed = FakePartialFeed()
+
+        def _new_partial_feed(self) -> FakePartialFeed:
+            return self.feed
+
+    t = _PartialStub()
+    partials: list[str] = []
+    finals: list[str] = []
+    session = LiveSession(t, on_text=finals.append, on_partial=partials.append)
+    session.start()
+    session.push(_windows(4))
+    segments = session.finalize(timeout_s=10)
+    assert len(segments) == 4
+    assert finals == ["字幕"] * 4
+    assert partials == [f"粗稿{i}" for i in range(1, 5)]
+    assert t.feed.n_reset == 4
+
+
+def test_live_session_partial_dropped_when_transcriber_lacks_feed() -> None:
+    """transcriber 无粗稿能力时降级为仅终稿,不炸(批量/云引擎路线同路径)。"""
+    partials: list[str] = []
+    finals: list[str] = []
+    session = LiveSession(_StubTranscriber(), on_text=finals.append, on_partial=partials.append)
+    session.start()
+    session.push(_windows(2))
+    segments = session.finalize(timeout_s=10)
+    assert finals == ["字幕", "字幕"]
+    assert partials == []
+    assert len(segments) == 2
+
+
 def test_local_transcriber_rejects_invalid_lang(tmp_path: Path) -> None:
     """语种拼错(如 jp)在模型检查前即被拒:给可行动报错,不触发模型下载。"""
     with pytest.raises(TranscribeError, match="语种非法"):

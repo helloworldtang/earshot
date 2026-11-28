@@ -12,6 +12,7 @@ import httpx
 DEFAULT_ENDPOINT = "https://hf-mirror.com"
 SENSE_VOICE_REPO = "csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
 SILERO_VAD_REPO = "onnx-community/silero-vad"
+STREAM_ZIPFORMER_REPO = "csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20"
 
 # 相对路径 -> (HF 仓库, 仓库内文件)
 MODEL_FILES: dict[str, tuple[str, str]] = {
@@ -20,18 +21,33 @@ MODEL_FILES: dict[str, tuple[str, str]] = {
     "vad/silero_vad.onnx": (SILERO_VAD_REPO, "onnx/model.onnx"),
 }
 
+# 实时粗稿模型(流式 zipformer 双语 zh-en,int8,~190MB):仅实时字幕(listen)用,
+# 批量转写/audio 路线不下载 —— 两遍识别的首遍,终稿仍由 SenseVoice 出。
+STREAM_MODEL_FILES: dict[str, tuple[str, str]] = {
+    "asr_stream/tokens.txt": (STREAM_ZIPFORMER_REPO, "tokens.txt"),
+    "asr_stream/encoder-epoch-99-avg-1.int8.onnx": (STREAM_ZIPFORMER_REPO, "encoder-epoch-99-avg-1.int8.onnx"),
+    "asr_stream/decoder-epoch-99-avg-1.onnx": (STREAM_ZIPFORMER_REPO, "decoder-epoch-99-avg-1.onnx"),
+    "asr_stream/joiner-epoch-99-avg-1.int8.onnx": (STREAM_ZIPFORMER_REPO, "joiner-epoch-99-avg-1.int8.onnx"),
+}
+
 
 def missing_models(model_root: Path) -> list[str]:
     """列出缺失的模型相对路径。"""
     return [rel for rel in MODEL_FILES if not (model_root / rel).is_file()]
 
 
-def ensure_models(model_root: Path, endpoint: str | None = None) -> bool:
+def missing_stream_models(model_root: Path) -> list[str]:
+    """列出缺失的实时粗稿模型相对路径。"""
+    return [rel for rel in STREAM_MODEL_FILES if not (model_root / rel).is_file()]
+
+
+def ensure_models(model_root: Path, endpoint: str | None = None, include_stream: bool = False) -> bool:
     """确保模型齐全,缺失则下载。
 
     Args:
         model_root: 模型根目录。
         endpoint: HF 端点,默认 hf-mirror,可 ``HF_ENDPOINT`` 覆盖。
+        include_stream: 连同实时粗稿模型(流式 zipformer)一起补齐,listen 路线用。
 
     Returns:
         是否发生了下载。
@@ -42,9 +58,12 @@ def ensure_models(model_root: Path, endpoint: str | None = None) -> bool:
     import os
 
     base = endpoint or os.environ.get("HF_ENDPOINT") or DEFAULT_ENDPOINT
+    files = dict(MODEL_FILES)
+    if include_stream:
+        files.update(STREAM_MODEL_FILES)
     downloaded = False
-    for rel in missing_models(model_root):
-        repo, remote = MODEL_FILES[rel]
+    for rel in [rel for rel in files if not (model_root / rel).is_file()]:
+        repo, remote = files[rel]
         dest = model_root / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         url = f"{base}/{repo}/resolve/main/{remote}"
