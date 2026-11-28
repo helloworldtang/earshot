@@ -91,7 +91,8 @@ def main() -> int:
     for t_audio, t_wall, text in events:
         print(f"  音频{t_audio:>6.2f}s  墙钟{t_wall:>6}ms  {text}")
     final_partial = events[-1][2] if events else ""
-    print(f"\npartial 变化次数 {len(events)}(刷新越频繁闪烁越多),流式侧总耗时 {lag_sum:.2f}s / 音频 {total_s:.1f}s(>1 才追不上实时)")
+    # >1 才追不上实时
+    print(f"\npartial 变化次数 {len(events)}(刷新越频繁闪烁越多),流式侧总耗时 {lag_sum:.2f}s / 音频 {total_s:.1f}s")
 
     print("\n== SenseVoice 终稿(VAD 切段,生产同路径) ==")
     segs = transcriber.transcribe_samples(samples)
